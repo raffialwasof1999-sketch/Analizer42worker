@@ -2,3 +2,5 @@ name = "analyzer42-sec"
 main = "src/index.js"
 compatibility_date = "2026-10-16"
 preview_urls = true
+
+[previews]
