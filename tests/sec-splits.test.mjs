@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates } from '../src/sec-splits.js';
+import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, assessSplitBasis } from '../src/sec-splits.js';
 const record = (end,val,filed='2025-01-01') => ({end,val,filed,form:'10-K',accn:'test'});
 const facts = { facts: { 'us-gaap': {
   StockholdersEquityNoteStockSplitConversionRatio1: {units:{pure:[
@@ -86,3 +86,16 @@ const invalidDate = detectSplitStatements(
   '0000320193-20-000096'
 );
 assert.equal(splitDateCandidates(invalidDate[0]).length,0);
+
+const unknownBasis=assessSplitBasis({end:'2019-12-31',filed:'2025-01-01'},verifiedEvents);
+assert.equal(unknownBasis.eligible,false);
+assert.equal(unknownBasis.status,'basis-unknown');
+const provenBasis=assessSplitBasis({
+  end:'2019-12-31',basisVerified:true,basisThrough:'2024-06-10',
+  basisSecAccession:'0001045810-24-000144'
+},verifiedEvents);
+assert.equal(provenBasis.eligible,true);
+assert.equal(provenBasis.status,'basis-proven');
+assert.equal(assessSplitBasis({
+  end:'2019-12-31',basisVerified:true,basisThrough:'2024-06-10'
+},verifiedEvents).eligible,false);
