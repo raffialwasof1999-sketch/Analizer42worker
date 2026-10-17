@@ -135,7 +135,7 @@ export function secSplitFilingCandidates(submissions, evidence = []) {
     const accessionCompact = accession.replaceAll('-', '');
     const primaryDocument = recent.primaryDocument?.[i];
     const safePrimary = typeof primaryDocument === 'string' &&
-      /^[A-Za-z0-9_.-]+\\.(?:htm|html|txt)$/i.test(primaryDocument);
+      /^[A-Za-z0-9_.-]+\.(?:htm|html|txt)$/i.test(primaryDocument);
     const filingDocumentUrl = validCik && safePrimary
       ? `https://www.sec.gov/Archives/edgar/data/${cik}/${accessionCompact}/${primaryDocument}`
       : null;
