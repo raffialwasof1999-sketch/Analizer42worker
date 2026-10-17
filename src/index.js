@@ -666,6 +666,10 @@ export default {
 
       validateOutput(annualFinancials,quarterlyFinancials);
 
+      const stockSplitAudit = splitAudit(facts);
+      stockSplitAudit.filingCandidates =
+        secSplitFilingCandidates(sub,stockSplitAudit.candidates).slice(0,30);
+
       if (inspectAccession !== null) {
         const candidate = stockSplitAudit.filingCandidates.find(f =>
           f.accession === inspectAccession
@@ -710,10 +714,6 @@ export default {
       const index = (sub.tickers||[]).findIndex(t =>
         String(t).toUpperCase()===ticker
       );
-
-      const stockSplitAudit = splitAudit(facts);
-      stockSplitAudit.filingCandidates =
-        secSplitFilingCandidates(sub,stockSplitAudit.candidates).slice(0,30);
 
       return json({
         schemaVersion:VERSION,
