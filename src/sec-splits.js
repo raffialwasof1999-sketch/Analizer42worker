@@ -1,7 +1,7 @@
 /**
  * SEC-only split evidence collector.
  * The GAAP ratio concept describes a split but is not guaranteed for all issuers.
- * Treat the fact's instant end as an evidence date, NOT a confirmed trading effective date.
+ * Treat the XBRL fact period end as an evidence date, NOT a confirmed trading effective date.
  * Never apply a split factor to historical EPS without establishing its reporting basis.
  */
 export function secSplitEvidence(companyFacts) {
@@ -22,6 +22,7 @@ export function secSplitEvidence(companyFacts) {
             !['10-K','10-Q','10-K/A','10-Q/A'].includes(r.form)) continue;
         evidence.push({
           evidenceDate: r.end,
+          periodStart: r.start || null,
           sharesAfterPerBefore: r.val,
           concept,
           accession: r.accn || null,
@@ -51,5 +52,59 @@ export function splitAudit(companyFacts) {
     normalizationApplied: false,
     status: candidates.length ? 'requires-filing-verification' : 'no-structured-split-evidence',
     note: 'SEC XBRL split ratios are incomplete and evidence dates are not necessarily execution dates. Reported EPS and share counts remain unchanged until split timing and per-filing restatement basis are verified.'
+  };
+}
+
+/**
+ * Convert a verified originally-reported per-share observation to a target basis.
+ * All inputs MUST have evidence from filings: split effective dates, source
+ * observation's restatement cutoff, and desired target date. Guessing a cutoff
+ * from the period end or SEC filing date can double-adjust EPS.
+ *
+ * The report basis cutoff represents the latest effective split already reflected
+ * in the number, not simply the date on which the report was filed.
+ *
+ * Shares multiply by the forward split factor; EPS and per-share dividends divide.
+ * Dollar totals (net income, revenue, etc.) must NEVER be transformed here.
+ */
+export function normalizeVerifiedPerShare({
+  value, metric, basisThrough, targetDate, verifiedEvents
+}) {
+  if (!['dilutedEPS','basicEPS','dilutedShares','basicShares','dividendsPerShare']
+      .includes(metric)) throw Error('Unsupported per-share metric');
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw Error('Numeric reported value required');
+  }
+  const valid = d => typeof d === 'string' &&
+    /^\\d{4}-\\d{2}-\\d{2}$/.test(d) &&
+    !Number.isNaN(Date.parse(d + 'T00:00:00Z'));
+  if (!valid(basisThrough) || !valid(targetDate) || targetDate < basisThrough) {
+    throw Error('Verified basisThrough and later targetDate required');
+  }
+  if (!Array.isArray(verifiedEvents)) throw Error('Verified event array required');
+  let factor = 1;
+  const seen = new Set();
+  for (const event of verifiedEvents) {
+    if (!valid(event.effectiveDate) ||
+        !Number.isFinite(event.sharesAfterPerBefore) ||
+        event.sharesAfterPerBefore <= 0 ||
+        event.verified !== true ||
+        !event.secAccession) throw Error('Unverified split event');
+    const key = event.effectiveDate + ':' + event.sharesAfterPerBefore;
+    if (seen.has(key)) throw Error('Repeated split event');
+    seen.add(key);
+    if (event.effectiveDate > basisThrough && event.effectiveDate <= targetDate) {
+      factor *= event.sharesAfterPerBefore;
+    }
+  }
+  if (!Number.isFinite(factor) || factor <= 0) throw Error('Invalid cumulative factor');
+  return {
+    original: value,
+    adjusted: metric.endsWith('Shares') ? value * factor : value / factor,
+    cumulativeFactor: factor,
+    metric,
+    basisThrough,
+    targetDate,
+    verified: true
   };
 }
