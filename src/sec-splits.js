@@ -108,3 +108,39 @@ export function normalizeVerifiedPerShare({
     verified: true
   };
 }
+
+/**
+ * SEC submissions contain filing dates and accession numbers, NOT split dates.
+ * Return auditable filing candidates for subsequent exhibit/filing review.
+ * 8-K Item 5.03 may describe amended share capitalization, but isn't itself
+ * proof of a split. 10-K/10-Q disclosure can also identify split events.
+ */
+export function secSplitFilingCandidates(submissions, evidence = []) {
+  const recent = submissions?.filings?.recent || {};
+  const found = [];
+  const count = Array.isArray(recent.form) ? recent.form.length : 0;
+  for (let i = 0; i < count; i++) {
+    const form = recent.form[i];
+    const accession = recent.accessionNumber?.[i];
+    const filed = recent.filingDate?.[i];
+    if (!['8-K','8-K/A','10-K','10-K/A','10-Q','10-Q/A'].includes(form) ||
+        typeof accession !== 'string' ||
+        !/^\\d{10}-\\d{2}-\\d{6}$/.test(accession) ||
+        typeof filed !== 'string' ||
+        !/^\\d{4}-\\d{2}-\\d{2}$/.test(filed)) continue;
+    const sameFilingRatioFacts = evidence.filter(e => e.accession === accession);
+    // All eligible filings are candidates, not verified split announcements.
+    found.push({
+      accession, filed, form,
+      reportDate: recent.reportDate?.[i] || null,
+      items: recent.items?.[i] || '',
+      splitRatioFacts: sameFilingRatioFacts.map(e => ({
+        sharesAfterPerBefore: e.sharesAfterPerBefore,
+        periodStart: e.periodStart,
+        evidenceDate: e.evidenceDate
+      })),
+      verifiedSplit: false
+    });
+  }
+  return found.sort((a,b) => b.filed.localeCompare(a.filed));
+}
