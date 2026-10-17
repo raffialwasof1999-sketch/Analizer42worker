@@ -1,4 +1,4 @@
-import { splitAudit, secSplitFilingCandidates, detectSplitStatements } from './sec-splits.js';
+import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates } from './sec-splits.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -685,7 +685,8 @@ export default {
         const all = new Uint8Array(bytes);
         let offset = 0;
         for (const chunk of chunks) { all.set(chunk,offset); offset += chunk.length; }
-        const statements = detectSplitStatements(new TextDecoder().decode(all),candidate.accession);
+        const statements = detectSplitStatements(new TextDecoder().decode(all),candidate.accession)
+          .map(s => ({...s,dateCandidates:splitDateCandidates(s)}));
         return json({
           success:true,ticker,cik,accession:candidate.accession,
           filingDocumentUrl:candidate.filingDocumentUrl,
