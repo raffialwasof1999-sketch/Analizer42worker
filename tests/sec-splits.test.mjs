@@ -1,0 +1,101 @@
+import { strict as assert } from 'node:assert';
+import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, assessSplitBasis } from '../src/sec-splits.js';
+const record = (end,val,filed='2025-01-01') => ({end,val,filed,form:'10-K',accn:'test'});
+const facts = { facts: { 'us-gaap': {
+  StockholdersEquityNoteStockSplitConversionRatio1: {units:{pure:[
+    record('2020-08-31',4),record('2020-08-31',4,'2026-01-01'),
+    record('2024-06-10',10), record('2025-03-01',0.1),
+    record('2025-04-01',1),record('2025-05-01',-4)
+  ]}}
+}}};
+const events = secSplitEvidence(facts);
+assert.equal(events.length,3);
+assert.deepEqual(events.map(x=>x.sharesAfterPerBefore),[4,10,0.1]);
+assert.equal(splitAudit(facts).normalizationApplied,false);
+assert.equal(splitAudit({facts:{}}).status,'no-structured-split-evidence');
+console.log('SEC split-audit tests passed');
+
+const verifiedEvents = [
+  {effectiveDate:'2020-08-31',sharesAfterPerBefore:4,verified:true,secAccession:'0001'},
+  {effectiveDate:'2022-08-25',sharesAfterPerBefore:0.1,verified:true,secAccession:'0002'},
+  {effectiveDate:'2024-06-10',sharesAfterPerBefore:10,verified:true,secAccession:'0003'}
+];
+const normalize = (metric,value,basisThrough,targetDate='2024-06-11') =>
+  normalizeVerifiedPerShare({metric,value,basisThrough,targetDate,verifiedEvents});
+assert.ok(Math.abs(normalize('dilutedEPS',8,'2019-01-01').adjusted - 2) < 1e-10);
+assert.ok(Math.abs(normalize('dilutedShares',100,'2019-01-01').adjusted - 400) < 1e-10);
+assert.equal(normalize('dilutedEPS',8,'2024-06-11').adjusted,8);
+assert.equal(normalize('dilutedEPS',8,'2020-08-31','2020-08-31').adjusted,8);
+assert.throws(()=>normalize('netIncome',100,'2019-01-01'));
+assert.throws(()=>normalizeVerifiedPerShare({
+  metric:'dilutedEPS',value:8,basisThrough:'2019-01-01',
+  targetDate:'2024-06-11',
+  verifiedEvents:[{effectiveDate:'2020-08-31',sharesAfterPerBefore:4,verified:false,secAccession:'0001'}]
+}));
+assert.throws(()=>normalizeVerifiedPerShare({
+  metric:'dilutedEPS',value:8,basisThrough:'2019-01-01',
+  targetDate:'2024-06-11',verifiedEvents:[...verifiedEvents,verifiedEvents[0]]
+}));
+
+const submissions = {cik: 1234567, filings:{recent:{
+  form:['8-K','10-Q','S-1','8-K'],
+  accessionNumber:['0000000001-26-000001','0000000001-26-000002','0000000001-26-000003','invalid'],
+  filingDate:['2026-03-02','2026-02-01','2026-01-01','2025-12-01'],
+  reportDate:['2026-03-02','2025-12-31','2025-12-31',''],
+  items:['5.03','','',''],
+  primaryDocument:['event.htm','quarterly-report.htm','skip.htm','../../bad.htm']
+}}};
+const filingCandidates = secSplitFilingCandidates(submissions,[{
+  accession:'0000000001-26-000002',sharesAfterPerBefore:4,
+  evidenceDate:'2025-12-31',periodStart:'2025-01-01'
+}]);
+assert.equal(filingCandidates.length,2);
+assert.equal(filingCandidates[0].form,'10-Q');
+assert.equal(filingCandidates[0].filingIndexUrl,'https://www.sec.gov/Archives/edgar/data/1234567/000000000126000002/');
+assert.equal(filingCandidates[0].filingDocumentUrl,'https://www.sec.gov/Archives/edgar/data/1234567/000000000126000002/quarterly-report.htm');
+assert.equal(filingCandidates[0].verifiedSplit,false);
+assert.equal(filingCandidates[0].splitRatioFacts[0].sharesAfterPerBefore,4);
+assert.equal(filingCandidates[1].verifiedSplit,false);
+
+// Independently sourced SEC examples. Test both original and post-split bases.
+import { readFileSync } from 'node:fs';
+const fixture = JSON.parse(readFileSync(new URL('./fixtures/sec-confirmed-splits.json', import.meta.url),'utf8'));
+for (const event of fixture.events) {
+  assert.match(event.secUrl,/^https:\/\/www\.sec\.gov\/Archives\/edgar\/data\//);
+  const original = normalizeVerifiedPerShare({value:12,metric:'dilutedEPS',basisThrough:'2019-01-01',targetDate:'2025-01-01',verifiedEvents:[event]});
+  assert.equal(original.adjusted,12/event.sharesAfterPerBefore);
+  const alreadyRestated = normalizeVerifiedPerShare({value:12,metric:'dilutedEPS',basisThrough:'2025-01-01',targetDate:'2025-01-01',verifiedEvents:[event]});
+  assert.equal(alreadyRestated.adjusted,12);
+}
+
+const splitText = 'The company effected a 10-for-1 stock split. The board considered a 1-for-20 reverse stock split.';
+const discovered = detectSplitStatements(splitText,'0001045810-24-000144');
+assert.equal(discovered.length,2);
+assert.deepEqual(discovered.map(x=>x.sharesAfterPerBefore),[10,0.05]);
+assert.ok(discovered.every(x=>x.verified===false && x.effectiveDate===null));
+assert.throws(()=>detectSplitStatements(splitText,'invalid'));
+
+const dated = detectSplitStatements(
+  'The company effected a 4-for-1 stock split effective on August 31, 2020.',
+  '0000320193-20-000096'
+);
+assert.equal(splitDateCandidates(dated[0])[0].date,'2020-08-31');
+assert.equal(splitDateCandidates(dated[0])[0].verified,false);
+const invalidDate = detectSplitStatements(
+  'A 4-for-1 stock split effective on February 30, 2020.',
+  '0000320193-20-000096'
+);
+assert.equal(splitDateCandidates(invalidDate[0]).length,0);
+
+const unknownBasis=assessSplitBasis({end:'2019-12-31',filed:'2025-01-01'},verifiedEvents);
+assert.equal(unknownBasis.eligible,false);
+assert.equal(unknownBasis.status,'basis-unknown');
+const provenBasis=assessSplitBasis({
+  end:'2019-12-31',basisVerified:true,basisThrough:'2024-06-10',
+  basisSecAccession:'0001045810-24-000144'
+},verifiedEvents);
+assert.equal(provenBasis.eligible,true);
+assert.equal(provenBasis.status,'basis-proven');
+assert.equal(assessSplitBasis({
+  end:'2019-12-31',basisVerified:true,basisThrough:'2024-06-10'
+},verifiedEvents).eligible,false);
