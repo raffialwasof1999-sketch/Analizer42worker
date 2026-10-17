@@ -42,7 +42,8 @@ const submissions = {cik: 1234567, filings:{recent:{
   accessionNumber:['0000000001-26-000001','0000000001-26-000002','0000000001-26-000003','invalid'],
   filingDate:['2026-03-02','2026-02-01','2026-01-01','2025-12-01'],
   reportDate:['2026-03-02','2025-12-31','2025-12-31',''],
-  items:['5.03','','','']
+  items:['5.03','','',''],
+  primaryDocument:['event.htm','quarterly-report.htm','skip.htm','../../bad.htm']
 }}};
 const filingCandidates = secSplitFilingCandidates(submissions,[{
   accession:'0000000001-26-000002',sharesAfterPerBefore:4,
@@ -51,6 +52,7 @@ const filingCandidates = secSplitFilingCandidates(submissions,[{
 assert.equal(filingCandidates.length,2);
 assert.equal(filingCandidates[0].form,'10-Q');
 assert.equal(filingCandidates[0].filingIndexUrl,'https://www.sec.gov/Archives/edgar/data/1234567/000000000126000002/');
+assert.equal(filingCandidates[0].filingDocumentUrl,'https://www.sec.gov/Archives/edgar/data/1234567/000000000126000002/quarterly-report.htm');
 assert.equal(filingCandidates[0].verifiedSplit,false);
 assert.equal(filingCandidates[0].splitRatioFacts[0].sharesAfterPerBefore,4);
 assert.equal(filingCandidates[1].verifiedSplit,false);
