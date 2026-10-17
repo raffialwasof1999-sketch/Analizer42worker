@@ -266,3 +266,28 @@ export function assessSplitBasis(observation, verifiedEvents) {
       : 'SEC facts do not specify which later split restatements this value already incorporates'
   };
 }
+
+/**
+ * The sole permitted entry point for changing a reported per-share number.
+ * Provenance is checked here, not merely reported as advisory metadata.
+ * Callers must provide an independently verified split history AND basis proof.
+ */
+export function normalizeProvenObservation(observation, targetDate, verifiedEvents) {
+  if (!observation || typeof observation !== 'object') {
+    throw Error('SEC observation required');
+  }
+  const basis = assessSplitBasis(observation, verifiedEvents);
+  if (!basis.eligible) throw Error('Cannot adjust EPS: SEC reporting basis unverified');
+  if (!observation.accn || observation.accn !== observation.basisSecAccession) {
+    throw Error('Observation and basis proof refer to different SEC filings');
+  }
+  if (!['dilutedEPS','basicEPS','dilutedShares','basicShares','dividendsPerShare']
+    .includes(observation.metric)) throw Error('Unsupported per-share metric');
+  return normalizeVerifiedPerShare({
+    value: observation.val,
+    metric: observation.metric,
+    basisThrough: observation.basisThrough,
+    targetDate,
+    verifiedEvents
+  });
+}
