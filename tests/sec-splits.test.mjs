@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare } from '../src/sec-splits.js';
+import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare, secSplitFilingCandidates } from '../src/sec-splits.js';
 const record = (end,val,filed='2025-01-01') => ({end,val,filed,form:'10-K',accn:'test'});
 const facts = { facts: { 'us-gaap': {
   StockholdersEquityNoteStockSplitConversionRatio1: {units:{pure:[
@@ -36,3 +36,20 @@ assert.throws(()=>normalizeVerifiedPerShare({
   metric:'dilutedEPS',value:8,basisThrough:'2019-01-01',
   targetDate:'2024-06-11',verifiedEvents:[...verifiedEvents,verifiedEvents[0]]
 }));
+
+const submissions = {filings:{recent:{
+  form:['8-K','10-Q','S-1','8-K'],
+  accessionNumber:['0000000001-26-000001','0000000001-26-000002','0000000001-26-000003','invalid'],
+  filingDate:['2026-03-02','2026-02-01','2026-01-01','2025-12-01'],
+  reportDate:['2026-03-02','2025-12-31','2025-12-31',''],
+  items:['5.03','','','']
+}}};
+const filingCandidates = secSplitFilingCandidates(submissions,[{
+  accession:'0000000001-26-000002',sharesAfterPerBefore:4,
+  evidenceDate:'2025-12-31',periodStart:'2025-01-01'
+}]);
+assert.equal(filingCandidates.length,2);
+assert.equal(filingCandidates[0].form,'8-K');
+assert.equal(filingCandidates[0].verifiedSplit,false);
+assert.equal(filingCandidates[1].splitRatioFacts[0].sharesAfterPerBefore,4);
+assert.equal(filingCandidates[1].verifiedSplit,false);
