@@ -156,3 +156,48 @@ export function secSplitFilingCandidates(submissions, evidence = []) {
     b.filed.localeCompare(a.filed)
   );
 }
+
+/**
+ * Extract reviewable split statements from SEC filing text.
+ * This is a discovery aid, not an event verifier: a filing may describe
+ * a proposed, historical, rescinded, or hypothetical split.
+ * Never send these candidates directly to normalizeVerifiedPerShare.
+ */
+export function detectSplitStatements(text, accession) {
+  if (typeof text !== 'string' || text.length > 2_000_000) {
+    throw Error('SEC filing text must be a bounded string');
+  }
+  if (typeof accession !== 'string' ||
+      !/^\d{10}-\d{2}-\d{6}$/.test(accession)) {
+    throw Error('Valid SEC accession required');
+  }
+  const normalized = text.replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/\s+/g, ' ');
+  const findings = [];
+  const patterns = [
+    /\\b(\d{1,3})\s*(?:-\s*for\s*-|for\s*)\s*(\d{1,3})\s+(?:forward\s+|reverse\s+)?stock split\\b/gi,
+    /\\b(?:forward|reverse)\s+stock split\s+(?:of|at|on a basis of)\s+(\d{1,3})\s*(?:-\s*for\s*-|for\s*)\s*(\d{1,3})\\b/gi
+  ];
+  for (const pattern of patterns) {
+    for (const m of normalized.matchAll(pattern)) {
+      const after = Number(m[1]), before = Number(m[2]);
+      if (!(after > 0 && before > 0) || after === before) continue;
+      const context = normalized.slice(Math.max(0,m.index-180),
+        Math.min(normalized.length,m.index+m[0].length+180));
+      const key = [m.index,after,before].join(':');
+      findings.push({
+        accession,
+        sharesAfterPerBefore: after/before,
+        ratioText: m[0],
+        context,
+        textOffset: m.index,
+        verified: false,
+        effectiveDate: null,
+        status: 'filing-text-review-needed',
+        key
+      });
+    }
+  }
+  return findings.sort((a,b)=>a.textOffset-b.textOffset);
+}
