@@ -497,7 +497,7 @@ function q4EpsFromHtml(html) {
     const number=(label)=>{
       const row=slice.find(r=>r[0]?.toLowerCase()===label);
       if(!row)return null;
-      const nums=row.slice(1).filter(x=>/^\$?\s*\d+(?:\.\d+)?$/.test(x)).map(Number);
+      const nums=row.slice(1).filter(x=>/^\$?\s*\d+(?:\.\d+)?$/.test(x)).map(x=>Number(x.replace(/[$\s]/g,'')));
       return nums.length>=2 && nums[0]>=0 && nums[0]<1000 ? nums[0]:null;
     };
     const basic=number('basic'),diluted=number('diluted');
