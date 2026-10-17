@@ -133,12 +133,18 @@ export function secSplitFilingCandidates(submissions, evidence = []) {
         !/^\d{4}-\d{2}-\d{2}$/.test(filed)) continue;
     const sameFilingRatioFacts = evidence.filter(e => e.accession === accession);
     const accessionCompact = accession.replaceAll('-', '');
+    const primaryDocument = recent.primaryDocument?.[i];
+    const safePrimary = typeof primaryDocument === 'string' &&
+      /^[A-Za-z0-9_.-]+\\.(?:htm|html|txt)$/i.test(primaryDocument);
+    const filingDocumentUrl = validCik && safePrimary
+      ? `https://www.sec.gov/Archives/edgar/data/${cik}/${accessionCompact}/${primaryDocument}`
+      : null;
     const filingIndexUrl = validCik
       ? `https://www.sec.gov/Archives/edgar/data/${cik}/${accessionCompact}/`
       : null;
     // All eligible filings are candidates, not verified split announcements.
     found.push({
-      accession, filed, form, filingIndexUrl,
+      accession, filed, form, filingIndexUrl, filingDocumentUrl,
       reportDate: recent.reportDate?.[i] || null,
       items: recent.items?.[i] || '',
       splitRatioFacts: sameFilingRatioFacts.map(e => ({
