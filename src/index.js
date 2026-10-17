@@ -666,6 +666,10 @@ export default {
         String(t).toUpperCase()===ticker
       );
 
+      const stockSplitAudit = splitAudit(facts);
+      stockSplitAudit.filingCandidates =
+        secSplitFilingCandidates(sub,stockSplitAudit.candidates).slice(0,30);
+
       return json({
         schemaVersion:VERSION,
         success:true,
@@ -675,9 +679,7 @@ export default {
         exchange:index>=0?(sub.exchanges?.[index]||''):'',
         annualFinancials,
         quarterlyFinancials,
-        stockSplitAudit:{...splitAudit(facts),
-          filingCandidates:secSplitFilingCandidates(sub, splitAudit(facts).candidates).slice(0,30)
-        },
+        stockSplitAudit,
         coverage:{
           annualYears:annualFinancials.length,
           reportedQuarters:quarterlyFinancials.length,
