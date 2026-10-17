@@ -207,3 +207,29 @@ export function detectSplitStatements(text, accession) {
   }
   return findings.sort((a,b)=>a.textOffset-b.textOffset);
 }
+
+/**
+ * Identify explicit execution-date phrases near a split statement.
+ * Returns possible dates only. Boilerplate, comparisons and proposals can
+ * contain dates: human/independent filing corroboration is still required.
+ */
+export function splitDateCandidates(statement) {
+  if (!statement || typeof statement.context !== 'string') return [];
+  const text = statement.context;
+  const months = {
+    january:1,february:2,march:3,april:4,may:5,june:6,
+    july:7,august:8,september:9,october:10,november:11,december:12
+  };
+  const found = [];
+  const pattern = /\b(?:effective|effected|became effective|began trading|commenced trading|trading began|split-adjusted trading began|on|as of)\s+(?:on\s+)?(?:the\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(20\d{2})\b/gi;
+  for (const m of text.matchAll(pattern)) {
+    const year = Number(m[3]), month = months[m[1].toLowerCase()], day = Number(m[2]);
+    const date = new Date(Date.UTC(year,month-1,day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month-1 ||
+        date.getUTCDate() !== day) continue;
+    found.push({date:date.toISOString().slice(0,10),
+      phrase:m[0],sourceAccession:statement.accession,
+      verified:false,status:'review-required'});
+  }
+  return [...new Map(found.map(x=>[x.date,x])).values()];
+}
