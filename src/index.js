@@ -648,24 +648,6 @@ export default {
         );
       }
 
-      const map = Object.fromEntries(
-        Object.keys(TAGS).map(k=>[
-          k,fieldFacts(gaap,k)
-        ])
-      );
-
-      const ends = periods(map);
-      const annualFinancials = buildAnnual(map,ends);
-      const quarters = buildQuarterly(map,ends);
-
-      enrichQuarterDates(quarters,sub);
-      coverShares(quarters,facts);
-
-      const quarterlyFinancials =
-        outputRows(quarters,QUARTER_FIELDS);
-
-      validateOutput(annualFinancials,quarterlyFinancials);
-
       const stockSplitAudit = splitAudit(facts);
       stockSplitAudit.filingCandidates =
         secSplitFilingCandidates(sub,stockSplitAudit.candidates).slice(0,30);
@@ -710,6 +692,24 @@ export default {
           statements,verifiedEvents:[],normalizationApplied:false
         });
       }
+
+      const map = Object.fromEntries(
+        Object.keys(TAGS).map(k=>[
+          k,fieldFacts(gaap,k)
+        ])
+      );
+
+      const ends = periods(map);
+      const annualFinancials = buildAnnual(map,ends);
+      const quarters = buildQuarterly(map,ends);
+
+      enrichQuarterDates(quarters,sub);
+      coverShares(quarters,facts);
+
+      const quarterlyFinancials =
+        outputRows(quarters,QUARTER_FIELDS);
+
+      validateOutput(annualFinancials,quarterlyFinancials);
 
       const index = (sub.tickers||[]).findIndex(t =>
         String(t).toUpperCase()===ticker
