@@ -54,3 +54,14 @@ assert.equal(filingCandidates[0].filingIndexUrl,'https://www.sec.gov/Archives/ed
 assert.equal(filingCandidates[0].verifiedSplit,false);
 assert.equal(filingCandidates[0].splitRatioFacts[0].sharesAfterPerBefore,4);
 assert.equal(filingCandidates[1].verifiedSplit,false);
+
+// Independently sourced SEC examples. Test both original and post-split bases.
+import { readFileSync } from 'node:fs';
+const fixture = JSON.parse(readFileSync(new URL('./fixtures/sec-confirmed-splits.json', import.meta.url),'utf8'));
+for (const event of fixture.events) {
+  assert.match(event.secUrl,/^https:\/\/www\.sec\.gov\/Archives\/edgar\/data\//);
+  const original = normalizeVerifiedPerShare({value:12,metric:'dilutedEPS',basisThrough:'2019-01-01',targetDate:'2025-01-01',verifiedEvents:[event]});
+  assert.equal(original.adjusted,12/event.sharesAfterPerBefore);
+  const alreadyRestated = normalizeVerifiedPerShare({value:12,metric:'dilutedEPS',basisThrough:'2025-01-01',targetDate:'2025-01-01',verifiedEvents:[event]});
+  assert.equal(alreadyRestated.adjusted,12);
+}
