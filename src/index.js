@@ -1,3 +1,4 @@
+import { splitAudit } from './sec-splits.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -674,6 +675,7 @@ export default {
         exchange:index>=0?(sub.exchanges?.[index]||''):'',
         annualFinancials,
         quarterlyFinancials,
+        stockSplitAudit:splitAudit(facts),
         coverage:{
           annualYears:annualFinancials.length,
           reportedQuarters:quarterlyFinancials.length,
