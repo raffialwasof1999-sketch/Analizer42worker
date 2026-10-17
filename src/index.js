@@ -482,6 +482,324 @@ function enrichQuarterDates(rows,sub) {
   }
 }
 
+
+/**
+ * Read a separately reported Q4 earnings-per-share row from an Item 2.02
+ * Form 8-K exhibit. Never infer EPS from the headline (usually diluted EPS).
+ * Conservative: ambiguous or unsupported table formats stay null.
+ */
+async function filingText(url) {
+  const response = await fetch(url, {
+    headers:{'User-Agent':CONTACT,'Accept':'text/html,application/json'},
+    cf:{cacheTtl:900,cacheEverything:true}
+  });
+  if (!response.ok) throw Error('SEC exhibit unavailable');
+  return response.text();
+}
+
+function cleanCell(html) {
+  return html.replace(/<[^>]*>/g,' ')
+    .replace(/&nbsp;|&#160;|&#xA0;/gi,' ')
+    .replace(/&amp;/gi,'&')
+    .replace(/\s+/g,' ').trim();
+}
+
+function epsFromExhibit(html,periodEnd) {
+  if (html.length>5000000) return null;
+  const tables = html.match(/<table\b[\s\S]*?<\/table>/gi)||[];
+  for (const table of tables) {
+    const plain = cleanCell(table).toLowerCase();
+    if (!plain.includes('earnings per share') ||
+        !plain.includes('three months ended')) continue;
+    const rows = [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
+      .map(m=>[...m[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+        .map(c=>cleanCell(c[1])).filter(Boolean));
+    const heading = rows.findIndex(r=>/earnings per share\s*:/i.test(r.join(' ')));
+    if (heading<0) continue;
+    const scan = rows.slice(heading+1,heading+7);
+    const find = name=>scan.find(r=>new RegExp('^'+name+'
+  const outstanding =
+    sec.facts?.dei?.EntityCommonStockSharesOutstanding?.units?.shares || [];
+
+  const diluted =
+    sec.facts?.['us-gaap']?.
+      WeightedAverageNumberOfDilutedSharesOutstanding?.
+      units?.shares || [];
+
+  for (const r of rows) {
+    r.sharesOutstanding = null;
+    r.sharesOutstandingAsOf = null;
+
+    const cover = outstanding
+      .filter(f =>
+        r._accession &&
+        f.accn===r._accession &&
+        ['10-Q','10-K','10-Q/A','10-K/A'].includes(f.form) &&
+        n(f.val)!==null &&
+        f.val>0 &&
+        Number.isSafeInteger(f.val) &&
+        validDate(f.end) &&
+        dayCount(r.fiscalPeriodEnd,f.end)>=-7 &&
+        r.secFilingDate &&
+        dayCount(f.end,r.secFilingDate)>=-1
+      )
+      .sort((a,b)=>b.end.localeCompare(a.end))[0];
+
+    if (cover) {
+      r.sharesOutstanding = cover.val;
+      r.sharesOutstandingAsOf = cover.end;
+    }
+
+    const precise = diluted
+      .filter(f =>
+        f.end===r.fiscalPeriodEnd &&
+        ['10-Q','10-K','10-Q/A','10-K/A'].includes(f.form) &&
+        validDate(f.start) &&
+        dayCount(f.start,f.end)>=60 &&
+        dayCount(f.start,f.end)<=110 &&
+        n(f.val)!==null &&
+        f.val>0 &&
+        (!r._accession||f.accn===r._accession)
+      )
+      .sort((a,b)=>
+        String(b.filed||'').localeCompare(String(a.filed||''))
+      )[0];
+
+    r.dilutedShares =
+      precise?.val ??
+      (n(r.dilutedShares)!==null ? r.dilutedShares : null);
+
+    delete r._accession;
+  }
+}
+
+function outputRows(rows,fields) {
+  return rows.map(r =>
+    Object.fromEntries(
+      fields.map(k=>[k,r[k]??null])
+    )
+  );
+}
+
+function validateOutput(a,q) {
+  // Short SEC histories are valid. Never invent missing periods.
+
+  if (!a.length) {
+    throw Error('No usable SEC annual financial periods found.');
+  }
+
+  if (!q.length) {
+    throw Error('No usable SEC quarterly financial periods found.');
+  }
+
+  const latest = q[0];
+
+  if (n(latest.revenue)===null || n(latest.netIncome)===null) {
+    throw Error(
+      'Latest SEC quarter lacks reported revenue or net income.'
+    );
+  }
+
+  if (n(a[0].revenue)===null || n(a[0].netIncome)===null) {
+    throw Error(
+      'Latest SEC fiscal year lacks reported revenue or net income.'
+    );
+  }
+
+  for (let i=1;i<a.length;i++) {
+    if (a[i-1].fiscalYear<=a[i].fiscalYear) {
+      throw Error('SEC annual periods are duplicated or incorrectly ordered.');
+    }
+  }
+
+  for (let i=1;i<q.length;i++) {
+    const prior =
+      q[i-1].fiscalYear*4+q[i-1].fiscalQuarter;
+
+    const next =
+      q[i].fiscalYear*4+q[i].fiscalQuarter;
+
+    if (prior<=next) {
+      throw Error('SEC quarterly periods are duplicated or incorrectly ordered.');
+    }
+  }
+}
+
+export default {
+  async fetch(request) {
+    if (request.method!=='GET') {
+      return json({success:false,error:'GET only'},405);
+    }
+
+    try {
+      const ticker =
+        (new URL(request.url).searchParams.get('ticker')||'')
+          .trim().toUpperCase();
+
+      if (!/^[A-Z0-9.-]{1,12}$/.test(ticker)) {
+        return json({
+          success:false,
+          error:'Provide ?ticker=AAPL'
+        },400);
+      }
+
+      const directory = await secFetch(
+        'https://www.sec.gov/files/company_tickers.json'
+      );
+
+      const company = Object.values(directory).find(v =>
+        String(v.ticker||'').toUpperCase()===ticker
+      );
+
+      if (!company) {
+        return json({
+          success:false,
+          error:'Ticker not in SEC directory'
+        },404);
+      }
+
+      const cik = String(company.cik_str).padStart(10,'0');
+
+      const [facts,sub] = await Promise.all([
+        secFetch(`${SEC}/api/xbrl/companyfacts/CIK${cik}.json`),
+        secFetch(`${SEC}/submissions/CIK${cik}.json`)
+      ]);
+
+      if (
+        Number(facts.cik)!==Number(cik) ||
+        Number(sub.cik)!==Number(cik)
+      ) {
+        throw Error('SEC CIK mismatch');
+      }
+
+      const gaap = facts.facts?.['us-gaap'];
+
+      if (!gaap) {
+        throw Error(
+          'No SEC us-gaap Company Facts; issuer not supported.'
+        );
+      }
+
+      const map = Object.fromEntries(
+        Object.keys(TAGS).map(k=>[
+          k,fieldFacts(gaap,k)
+        ])
+      );
+
+      const ends = periods(map);
+      const annualFinancials = buildAnnual(map,ends);
+      const quarters = buildQuarterly(map,ends);
+
+      enrichQuarterDates(quarters,sub);
+      await enrichReportedQ4Eps(quarters,sub,cik);
+      coverShares(quarters,facts);
+
+      const quarterlyFinancials =
+        outputRows(quarters,QUARTER_FIELDS);
+
+      validateOutput(annualFinancials,quarterlyFinancials);
+
+      const index = (sub.tickers||[]).findIndex(t =>
+        String(t).toUpperCase()===ticker
+      );
+
+      return json({
+        schemaVersion:VERSION,
+        success:true,
+        ticker,
+        cik,
+        companyName:facts.entityName||company.title||ticker,
+        exchange:index>=0?(sub.exchanges?.[index]||''):'',
+        annualFinancials,
+        quarterlyFinancials,
+        coverage:{
+          annualYears:annualFinancials.length,
+          reportedQuarters:quarterlyFinancials.length,
+          latestFourConsecutive:
+            quarterlyFinancials.length>=4 &&
+            quarterlyFinancials.slice(1,4).every((r,i)=>
+              quarterlyFinancials[i].fiscalYear*4+
+              quarterlyFinancials[i].fiscalQuarter===
+              r.fiscalYear*4+r.fiscalQuarter+1
+            ),
+          note:'Only reported SEC facts are imported; unavailable metrics remain blank.'
+        },
+        retrievedAt:new Date().toISOString(),
+        provenance:
+          'SEC EDGAR companyfacts and submissions; Google Finance supplies live prices'
+      });
+
+    } catch (err) {
+      return json({
+        schemaVersion:VERSION,
+        success:false,
+        error:String(err?.message||err)
+      },502);
+    }
+  }
+};
+
+
+,'i').test(r[0]||''));
+    const extract = r=>{
+      if (!r) return null;
+      const nums=r.slice(1).filter(v=>/^(?:\$\s*)?\(?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$/.test(v))
+        .map(v=>Number(v.replace(/[$,()\s]/g,'')));
+      // Require comparative current/prior quarter values; discard ambiguous rows.
+      return nums.length>=2 && nums[0]>=0 && nums[0]<1000 ? nums[0] : null;
+    };
+    const basicEPS=extract(find('Basic'));
+    const dilutedEPS=extract(find('Diluted'));
+    if (basicEPS!==null && dilutedEPS!==null &&
+        basicEPS>=dilutedEPS && basicEPS-dilutedEPS<100) {
+      return {basicEPS,dilutedEPS};
+    }
+  }
+  return null;
+}
+
+async function enrichReportedQ4Eps(rows,sub,cik) {
+  const filings=submissionFilings(sub);
+  const digits=String(Number(cik));
+  for (const row of rows) {
+    if (row.fiscalQuarter!==4) continue;
+    const report=filings.find(f=>['10-K','10-K/A'].includes(f.form) &&
+      f.end===row.fiscalPeriodEnd);
+    const candidates=filings.filter(f=>
+      f.form==='8-K' &&
+      /(?:^|[^\d])2\.02(?:$|[^\d])/.test(f.items) &&
+      dayCount(row.fiscalPeriodEnd,f.filed)>=0 &&
+      dayCount(row.fiscalPeriodEnd,f.filed)<=105 &&
+      (!report || dayCount(f.filed,report.filed)>=0)
+    ).sort((a,b)=>a.filed.localeCompare(b.filed));
+    for (const filing of candidates.slice(0,2)) {
+      if (!/^\d{10}-\d{2}-\d{6}$/.test(filing.accession)) continue;
+      const root='https://www.sec.gov/Archives/edgar/data/'+digits+'/'+
+        filing.accession.replace(/-/g,'')+'/';
+      try {
+        const index=JSON.parse(await filingText(root+'index.json'));
+        const files=index.directory?.item||[];
+        const exhibits=files.filter(f=>/\.html?$/i.test(f.name||'') &&
+          (/99[._-]?1/i.test(f.name||'') || /exhibit/i.test(f.name||'')))
+          .slice(0,4);
+        for (const exhibit of exhibits) {
+          if (!/^[\w.-]+\.html?$/i.test(exhibit.name)) continue;
+          const result=epsFromExhibit(
+            await filingText(root+exhibit.name),row.fiscalPeriodEnd);
+          if (!result) continue;
+          row.basicEPS=result.basicEPS;
+          row.dilutedEPS=result.dilutedEPS;
+          row.earningsDisclosureDate=filing.filed;
+          break;
+        }
+        if (row.basicEPS!==null && row.dilutedEPS!==null) break;
+      } catch (_) {
+        // Preserve reported Company Facts if the exhibit can't be verified.
+      }
+    }
+  }
+}
+
 function coverShares(rows,sec) {
   const outstanding =
     sec.facts?.dei?.EntityCommonStockSharesOutstanding?.units?.shares || [];
