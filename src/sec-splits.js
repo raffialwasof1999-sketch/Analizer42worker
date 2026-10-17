@@ -1,6 +1,6 @@
 /**
  * SEC-only split evidence collector.
- * The GAAP ratio concept describes a split but is not guaranteed for all issuers.
+ * The GAAP ratio concept describes a split but is not guaranteed for all issuers.\n * This XBRL concept is duration-based: its period end is NOT an event date.
  * Treat the XBRL fact period end as an evidence date, NOT a confirmed trading effective date.
  * Never apply a split factor to historical EPS without establishing its reporting basis.
  */
@@ -56,7 +56,7 @@ export function splitAudit(companyFacts) {
 }
 
 /**
- * Convert a verified originally-reported per-share observation to a target basis.
+ * Convert an independently verified per-share observation to a target basis.
  * All inputs MUST have evidence from filings: split effective dates, source
  * observation's restatement cutoff, and desired target date. Guessing a cutoff
  * from the period end or SEC filing date can double-adjust EPS.
