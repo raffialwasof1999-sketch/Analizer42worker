@@ -20,7 +20,7 @@ test('inspection returns unverified findings without computing quarterly SEC fin
     if(url.includes('companyfacts/')) return Response.json(facts);
     if(url.includes('/submissions/')) return Response.json(submissions);
     if(url.includes('/Archives/')) return new Response(
-      'The company effected a 4-for-1 stock split.', {status:200}
+      'The company effected a 4-for-1 stock split effective on August 31, 2020.', {status:200}
     );
     throw Error('Unexpected URL: '+url);
   };
@@ -34,6 +34,8 @@ test('inspection returns unverified findings without computing quarterly SEC fin
     assert.equal(result.statements.length,1);
     assert.equal(result.statements[0].sharesAfterPerBefore,4);
     assert.equal(result.statements[0].verified,false);
+    assert.equal(result.statements[0].dateCandidates[0].date,'2020-08-31');
+    assert.equal(result.statements[0].dateCandidates[0].verified,false);
     assert.equal(result.normalizationApplied,false);
     assert.equal(calls.length,4);
   } finally { globalThis.fetch = originalFetch; }
