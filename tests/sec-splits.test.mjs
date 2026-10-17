@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare, secSplitFilingCandidates, detectSplitStatements } from '../src/sec-splits.js';
+import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates } from '../src/sec-splits.js';
 const record = (end,val,filed='2025-01-01') => ({end,val,filed,form:'10-K',accn:'test'});
 const facts = { facts: { 'us-gaap': {
   StockholdersEquityNoteStockSplitConversionRatio1: {units:{pure:[
@@ -74,3 +74,15 @@ assert.equal(discovered.length,2);
 assert.deepEqual(discovered.map(x=>x.sharesAfterPerBefore),[10,0.05]);
 assert.ok(discovered.every(x=>x.verified===false && x.effectiveDate===null));
 assert.throws(()=>detectSplitStatements(splitText,'invalid'));
+
+const dated = detectSplitStatements(
+  'The company effected a 4-for-1 stock split effective on August 31, 2020.',
+  '0000320193-20-000096'
+);
+assert.equal(splitDateCandidates(dated[0])[0].date,'2020-08-31');
+assert.equal(splitDateCandidates(dated[0])[0].verified,false);
+const invalidDate = detectSplitStatements(
+  'A 4-for-1 stock split effective on February 30, 2020.',
+  '0000320193-20-000096'
+);
+assert.equal(splitDateCandidates(invalidDate[0]).length,0);
