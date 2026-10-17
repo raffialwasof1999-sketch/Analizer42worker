@@ -1,4 +1,4 @@
-import { splitAudit, secSplitFilingCandidates } from './sec-splits.js';
+import { splitAudit, secSplitFilingCandidates, detectSplitStatements } from './sec-splits.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -607,6 +607,10 @@ export default {
         },400);
       }
 
+      // Read-only split text inspection, constrained to SEC filing candidates.
+      // Fetches exactly one SEC document, never alters reported financial fields.
+      const url = new URL(request.url);
+      const inspectAccession = url.searchParams.get('inspectSplitAccession');
       const directory = await secFetch(
         'https://www.sec.gov/files/company_tickers.json'
       );
@@ -661,6 +665,47 @@ export default {
         outputRows(quarters,QUARTER_FIELDS);
 
       validateOutput(annualFinancials,quarterlyFinancials);
+
+      if (inspectAccession !== null) {
+        const candidate = stockSplitAudit.filingCandidates.find(f =>
+          f.accession === inspectAccession
+        );
+        if (!candidate?.filingDocumentUrl) {
+          return json({success:false,error:'SEC filing not available for inspection'},404);
+        }
+        const response = await fetch(candidate.filingDocumentUrl, {
+          headers:{'User-Agent':CONTACT,'Accept':'text/html, text/plain'},
+          redirect:'error'
+        });
+        if (!response.ok) throw Error('SEC filing returned HTTP '+response.status);
+        const size = Number(response.headers.get('content-length'));
+        if (Number.isFinite(size) && size > 2_000_000) {
+          return json({success:false,error:'SEC document exceeds inspection size limit'},413);
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw Error('SEC document body unavailable');
+        const chunks = [];
+        let bytes = 0;
+        while (true) {
+          const {done,value} = await reader.read();
+          if (done) break;
+          bytes += value.byteLength;
+          if (bytes > 2_000_000) {
+            await reader.cancel();
+            return json({success:false,error:'SEC document exceeds inspection size limit'},413);
+          }
+          chunks.push(value);
+        }
+        const all = new Uint8Array(bytes);
+        let offset = 0;
+        for (const chunk of chunks) { all.set(chunk,offset); offset += chunk.length; }
+        const statements = detectSplitStatements(new TextDecoder().decode(all),candidate.accession);
+        return json({
+          success:true,ticker,cik,accession:candidate.accession,
+          filingDocumentUrl:candidate.filingDocumentUrl,
+          statements,verifiedEvents:[],normalizationApplied:false
+        });
+      }
 
       const index = (sub.tickers||[]).findIndex(t =>
         String(t).toUpperCase()===ticker
