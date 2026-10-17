@@ -125,9 +125,9 @@ export function secSplitFilingCandidates(submissions, evidence = []) {
     const filed = recent.filingDate?.[i];
     if (!['8-K','8-K/A','10-K','10-K/A','10-Q','10-Q/A'].includes(form) ||
         typeof accession !== 'string' ||
-        !/^\\d{10}-\\d{2}-\\d{6}$/.test(accession) ||
+        !/^\d{10}-\d{2}-\d{6}$/.test(accession) ||
         typeof filed !== 'string' ||
-        !/^\\d{4}-\\d{2}-\\d{2}$/.test(filed)) continue;
+        !/^\d{4}-\d{2}-\d{2}$/.test(filed)) continue;
     const sameFilingRatioFacts = evidence.filter(e => e.accession === accession);
     // All eligible filings are candidates, not verified split announcements.
     found.push({
