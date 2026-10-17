@@ -304,6 +304,8 @@ export function compareRestatedPerShare(before, after, split) {
       !Number.isFinite(split.sharesAfterPerBefore) ||
       split.sharesAfterPerBefore <= 0 ||
       before.start !== after.start || before.end !== after.end ||
+      (before.unit && after.unit && before.unit !== after.unit) ||
+      Math.sign(before.val) !== Math.sign(after.val) ||
       before.metric !== after.metric ||
       !['dilutedEPS','basicEPS','dilutedShares','basicShares'].includes(before.metric) ||
       !Number.isFinite(before.val) || !Number.isFinite(after.val) ||
