@@ -233,3 +233,36 @@ export function splitDateCandidates(statement) {
   }
   return [...new Map(found.map(x=>[x.date,x])).values()];
 }
+
+/**
+ * Classify whether a financial observation can be normalized.
+ * SEC CompanyFacts does not explicitly annotate the split basis of each EPS
+ * observation. Filing date alone is insufficient: a post-split filing can
+ * include retroactively restated earlier EPS.
+ */
+export function assessSplitBasis(observation, verifiedEvents) {
+  if (!observation || !Array.isArray(verifiedEvents)) {
+    throw Error('Observation and split events are required');
+  }
+  const relevant = verifiedEvents.filter(e =>
+    e?.verified === true && typeof e.effectiveDate === 'string' &&
+    typeof observation.end === 'string' && e.effectiveDate > observation.end
+  );
+  const explicitlyVerifiedBasis =
+    observation.basisVerified === true &&
+    typeof observation.basisThrough === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(observation.basisThrough) &&
+    typeof observation.basisSecAccession === 'string' &&
+    /^\d{10}-\d{2}-\d{6}$/.test(observation.basisSecAccession);
+  return {
+    eligible: explicitlyVerifiedBasis,
+    status: explicitlyVerifiedBasis ? 'basis-proven' : 'basis-unknown',
+    potentialLaterSplits: relevant.map(e=>({
+      effectiveDate:e.effectiveDate,
+      sharesAfterPerBefore:e.sharesAfterPerBefore
+    })),
+    reason: explicitlyVerifiedBasis
+      ? 'Observation basis has separately verified SEC provenance'
+      : 'SEC facts do not specify which later split restatements this value already incorporates'
+  };
+}
