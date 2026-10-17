@@ -291,3 +291,38 @@ export function normalizeProvenObservation(observation, targetDate, verifiedEven
     verifiedEvents
   });
 }
+
+/**
+ * Compare two SEC XBRL observations for the SAME period, one filed before
+ * and the other after a verified split. A matching reciprocal EPS change
+ * supports (but does not alone prove) a restatement of the earlier period.
+ * Returns evidence only, never a verified basis cutoff.
+ */
+export function compareRestatedPerShare(before, after, split) {
+  const result = {status:'inconclusive', verified:false, observedFactor:null};
+  if (!before || !after || !split || split.verified !== true ||
+      !Number.isFinite(split.sharesAfterPerBefore) ||
+      split.sharesAfterPerBefore <= 0 ||
+      before.start !== after.start || before.end !== after.end ||
+      before.metric !== after.metric ||
+      !['dilutedEPS','basicEPS','dilutedShares','basicShares'].includes(before.metric) ||
+      !Number.isFinite(before.val) || !Number.isFinite(after.val) ||
+      !before.accn || !after.accn || before.accn === after.accn ||
+      typeof before.filed !== 'string' || typeof after.filed !== 'string' ||
+      typeof split.effectiveDate !== 'string' ||
+      before.filed >= split.effectiveDate ||
+      after.filed < split.effectiveDate ||
+      before.val === 0 || after.val === 0) return result;
+  const eps = before.metric.endsWith('EPS');
+  const observedFactor = eps ? before.val / after.val : after.val / before.val;
+  const expected = split.sharesAfterPerBefore;
+  const error = Math.abs(observedFactor-expected) / expected;
+  return {
+    status:error <= 0.02 ? 'consistent-with-restatement' : 'not-consistent',
+    verified:false,observedFactor,
+    expectedFactor:expected,
+    beforeAccession:before.accn,
+    afterAccession:after.accn,
+    periodEnd:before.end
+  };
+}
