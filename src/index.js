@@ -483,6 +483,63 @@ function enrichQuarterDates(rows,sub) {
 }
 
 
+
+function q4EpsFromHtml(html) {
+  const tables=html.match(/<table\b[\s\S]*?<\/table>/gi)||[];
+  const clean=t=>t.replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/gi,' ').replace(/\s+/g,' ').trim();
+  for(const table of tables) {
+    if(!/three months ended/i.test(clean(table)) || !/earnings per share/i.test(clean(table))) continue;
+    const rows=Array.from(table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi),m=>
+      Array.from(m[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi),c=>clean(c[1])).filter(Boolean));
+    const heading=rows.findIndex(r=>/earnings per share/i.test(r.join(' ')));
+    if(heading<0)continue;
+    const slice=rows.slice(heading+1,heading+8);
+    const number=(label)=>{
+      const row=slice.find(r=>r[0]?.toLowerCase()===label);
+      if(!row)return null;
+      const nums=row.slice(1).filter(x=>/^\$?\s*\d+(?:\.\d+)?$/.test(x)).map(Number);
+      return nums.length>=2 && nums[0]>=0 && nums[0]<1000 ? nums[0]:null;
+    };
+    const basic=number('basic'),diluted=number('diluted');
+    if(basic!==null&&diluted!==null&&basic>=diluted)return {basicEPS:basic,dilutedEPS:diluted};
+  }
+  return null;
+}
+
+async function loadQ4ReportedEps(rows,sub,cik) {
+  const filings=submissionFilings(sub);
+  for(const row of rows){
+    if(row.fiscalQuarter!==4)continue;
+    const annual=filings.find(f=>f.form==='10-K'&&f.end===row.fiscalPeriodEnd);
+    const matches=filings.filter(f=>f.form==='8-K'&&f.items.includes('2.02')&&
+      dayCount(row.fiscalPeriodEnd,f.filed)>=0&&dayCount(row.fiscalPeriodEnd,f.filed)<=105&&
+      (!annual||dayCount(f.filed,annual.filed)>=0)).sort((a,b)=>a.filed.localeCompare(b.filed));
+    for(const filing of matches.slice(0,2)){
+      const root='https://www.sec.gov/Archives/edgar/data/'+String(Number(cik))+'/'+filing.accession.replace(/-/g,'')+'/';
+      try{
+        const get=async url=>{
+          const res=await fetch(url,{headers:{'User-Agent':CONTACT}});
+          if(!res.ok)throw Error('SEC archive unavailable');
+          return res.text();
+        };
+        const index=JSON.parse(await get(root+'index.json'));
+        const names=(index.directory?.item||[]).map(v=>v.name)
+          .filter(n=>/^[\w.-]+\.html?$/i.test(n)&&/99|exhibit/i.test(n)).slice(0,4);
+        for(const name of names){
+          const result=q4EpsFromHtml(await get(root+name));
+          if(result){
+            row.basicEPS=result.basicEPS;
+            row.dilutedEPS=result.dilutedEPS;
+            row.earningsDisclosureDate=filing.filed;
+            break;
+          }
+        }
+        if(row.basicEPS!==null&&row.dilutedEPS!==null)break;
+      }catch(_){}
+    }
+  }
+}
+
 function coverShares(rows,sec) {
   const outstanding =
     sec.facts?.dei?.EntityCommonStockSharesOutstanding?.units?.shares || [];
@@ -657,6 +714,7 @@ export default {
       const quarters = buildQuarterly(map,ends);
 
       enrichQuarterDates(quarters,sub);
+      await loadQ4ReportedEps(quarters,sub,cik);
       coverShares(quarters,facts);
 
       const quarterlyFinancials =
