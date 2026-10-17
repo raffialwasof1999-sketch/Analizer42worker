@@ -1,6 +1,7 @@
 /**
  * SEC-only split evidence collector.
- * The GAAP ratio concept describes a split but is not guaranteed for all issuers.\n * This XBRL concept is duration-based: its period end is NOT an event date.
+ * The GAAP ratio concept describes a split but is not guaranteed for all issuers.
+ * This XBRL concept is duration-based: its period end is NOT an event date.
  * Treat the XBRL fact period end as an evidence date, NOT a confirmed trading effective date.
  * Never apply a split factor to historical EPS without establishing its reporting basis.
  */
@@ -118,6 +119,8 @@ export function normalizeVerifiedPerShare({
 export function secSplitFilingCandidates(submissions, evidence = []) {
   const recent = submissions?.filings?.recent || {};
   const found = [];
+  const cik = Number(submissions?.cik);
+  const validCik = Number.isSafeInteger(cik) && cik > 0;
   const count = Array.isArray(recent.form) ? recent.form.length : 0;
   for (let i = 0; i < count; i++) {
     const form = recent.form[i];
@@ -129,9 +132,13 @@ export function secSplitFilingCandidates(submissions, evidence = []) {
         typeof filed !== 'string' ||
         !/^\d{4}-\d{2}-\d{2}$/.test(filed)) continue;
     const sameFilingRatioFacts = evidence.filter(e => e.accession === accession);
+    const accessionCompact = accession.replaceAll('-', '');
+    const filingIndexUrl = validCik
+      ? `https://www.sec.gov/Archives/edgar/data/${cik}/${accessionCompact}/`
+      : null;
     // All eligible filings are candidates, not verified split announcements.
     found.push({
-      accession, filed, form,
+      accession, filed, form, filingIndexUrl,
       reportDate: recent.reportDate?.[i] || null,
       items: recent.items?.[i] || '',
       splitRatioFacts: sameFilingRatioFacts.map(e => ({
@@ -142,5 +149,10 @@ export function secSplitFilingCandidates(submissions, evidence = []) {
       verifiedSplit: false
     });
   }
-  return found.sort((a,b) => b.filed.localeCompare(a.filed));
+  // Prioritize filings with structured split evidence; remaining documents
+  // are discovery candidates only and MUST NOT be counted as split events.
+  return found.sort((a,b) =>
+    Number(b.splitRatioFacts.length > 0) - Number(a.splitRatioFacts.length > 0) ||
+    b.filed.localeCompare(a.filed)
+  );
 }
