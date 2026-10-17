@@ -13,4 +13,6 @@ test('detect same-period SEC comparative EPS restatement evidence',()=>{
   assert.equal(compareRestatedPerShare(before,{...after,val:7},split).status,'not-consistent');
   assert.equal(compareRestatedPerShare(before,after,{...split,verified:false}).status,'inconclusive');
   assert.equal(compareRestatedPerShare(before,{...after,accn:'old'},split).status,'inconclusive');
+  assert.equal(compareRestatedPerShare(before,{...after,val:-2},split).status,'inconclusive');
+  assert.equal(compareRestatedPerShare({...before,unit:'USD/shares'},{...after,unit:'shares'},split).status,'inconclusive');
 });
