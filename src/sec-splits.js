@@ -176,8 +176,8 @@ export function detectSplitStatements(text, accession) {
     .replace(/\s+/g, ' ');
   const findings = [];
   const patterns = [
-    /\\b(\d{1,3})\s*(?:-\s*for\s*-|for\s*)\s*(\d{1,3})\s+(?:forward\s+|reverse\s+)?stock split\\b/gi,
-    /\\b(?:forward|reverse)\s+stock split\s+(?:of|at|on a basis of)\s+(\d{1,3})\s*(?:-\s*for\s*-|for\s*)\s*(\d{1,3})\\b/gi
+    /\b(\d{1,3})\s*(?:-\s*for\s*-|for\s*)\s*(\d{1,3})\s+(?:forward\s+|reverse\s+)?stock split\b/gi,
+    /\b(?:forward|reverse)\s+stock split\s+(?:of|at|on a basis of)\s+(\d{1,3})\s*(?:-\s*for\s*-|for\s*)\s*(\d{1,3})\b/gi
   ];
   for (const pattern of patterns) {
     for (const m of normalized.matchAll(pattern)) {
