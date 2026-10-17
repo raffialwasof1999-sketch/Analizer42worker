@@ -649,11 +649,11 @@ export default {
       }
 
       const stockSplitAudit = splitAudit(facts);
-      stockSplitAudit.filingCandidates =
-        secSplitFilingCandidates(sub,stockSplitAudit.candidates).slice(0,30);
+      const allFilingCandidates = secSplitFilingCandidates(sub,stockSplitAudit.candidates);
+      stockSplitAudit.filingCandidates = allFilingCandidates.slice(0,30);
 
       if (inspectAccession !== null) {
-        const candidate = stockSplitAudit.filingCandidates.find(f =>
+        const candidate = allFilingCandidates.find(f =>
           f.accession === inspectAccession
         );
         if (!candidate?.filingDocumentUrl) {
