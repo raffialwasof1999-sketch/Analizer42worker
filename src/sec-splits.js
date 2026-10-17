@@ -76,7 +76,7 @@ export function normalizeVerifiedPerShare({
     throw Error('Numeric reported value required');
   }
   const valid = d => typeof d === 'string' &&
-    /^\\d{4}-\\d{2}-\\d{2}$/.test(d) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(d) &&
     !Number.isNaN(Date.parse(d + 'T00:00:00Z'));
   if (!valid(basisThrough) || !valid(targetDate) || targetDate < basisThrough) {
     throw Error('Verified basisThrough and later targetDate required');
