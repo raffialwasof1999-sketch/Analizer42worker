@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare, secSplitFilingCandidates } from '../src/sec-splits.js';
+import { secSplitEvidence, splitAudit, normalizeVerifiedPerShare, secSplitFilingCandidates, detectSplitStatements } from '../src/sec-splits.js';
 const record = (end,val,filed='2025-01-01') => ({end,val,filed,form:'10-K',accn:'test'});
 const facts = { facts: { 'us-gaap': {
   StockholdersEquityNoteStockSplitConversionRatio1: {units:{pure:[
@@ -65,3 +65,10 @@ for (const event of fixture.events) {
   const alreadyRestated = normalizeVerifiedPerShare({value:12,metric:'dilutedEPS',basisThrough:'2025-01-01',targetDate:'2025-01-01',verifiedEvents:[event]});
   assert.equal(alreadyRestated.adjusted,12);
 }
+
+const splitText = 'The company effected a 10-for-1 stock split. The board considered a 1-for-20 reverse stock split.';
+const discovered = detectSplitStatements(splitText,'0001045810-24-000144');
+assert.equal(discovered.length,2);
+assert.deepEqual(discovered.map(x=>x.sharesAfterPerBefore),[10,0.05]);
+assert.ok(discovered.every(x=>x.verified===false && x.effectiveDate===null));
+assert.throws(()=>detectSplitStatements(splitText,'invalid'));
