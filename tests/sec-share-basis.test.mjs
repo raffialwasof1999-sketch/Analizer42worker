@@ -30,7 +30,7 @@ test('build SEC share-basis chain across multi-year forward and reverse splits',
  assert.equal(graph.changedBasisEdges.some(e=>Math.abs(e.shareFactor-.1)<1e-8),true);
  const out=normalizeUsingSECShareGraph([
    {fiscalPeriodEnd:'2017-12-31',dilutedEPS:8,dilutedShares:100,netIncome:800}
- ],graph,()=>({accn:'A'}));
+ ],graph,(row,metric)=>({accn:'A',val:row[metric]}));
  assert.equal(out.complete,true);
  assert.ok(Math.abs(out.rows[0].dilutedEPS-20)<1e-8);
  assert.ok(Math.abs(out.rows[0].dilutedShares-40)<1e-8);
