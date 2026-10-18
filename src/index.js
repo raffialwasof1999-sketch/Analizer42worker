@@ -732,13 +732,25 @@ export default {
         const originalQuarter=buildQuarterly(splitMap,splitEnds);
         enrichQuarterDates(originalQuarter,sub);
         coverShares(originalQuarter,facts);
+        const candidateSources=(row,metric,kind,forms)=>{
+          const all=(splitMap[metric]||[]).filter(r=>
+            r.end===row.fiscalPeriodEnd && forms.includes(r.form) &&
+            validDate(r.start) && (
+              kind==='annual'
+                ? dayCount(r.start,r.end)>=330 && dayCount(r.start,r.end)<=385
+                : dayCount(r.start,r.end)>=60 && dayCount(r.start,r.end)<=110
+            )
+          );
+          const chosen=chooseRecord(splitMap[metric],row.fiscalPeriodEnd,kind,forms);
+          return [chosen,...all].filter(Boolean);
+        };
         const auditedAnnual=auditedSplitRows(
           originalAnnual,scan.verifiedEvents,targetDate,(row,metric)=>
-            chooseRecord(splitMap[metric],row.fiscalPeriodEnd,'annual',['10-K','10-K/A'])
+            candidateSources(row,metric,'annual',['10-K','10-K/A'])
         );
         const auditedQuarter=auditedSplitRows(
           originalQuarter,scan.verifiedEvents,targetDate,(row,metric)=>
-            chooseRecord(splitMap[metric],row.fiscalPeriodEnd,'quarter',
+            candidateSources(row,metric,'quarter',
               row.fiscalQuarter===4 ? ['10-K','10-K/A'] : ['10-Q','10-Q/A'])
         );
         return json({
