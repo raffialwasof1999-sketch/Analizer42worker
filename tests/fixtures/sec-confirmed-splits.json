@@ -1,29 +1,38 @@
 {
-  "description": "Manually verified SEC filing excerpts: event dates are split-adjusted trading start dates; these records are TEST FIXTURES only, not an exhaustive corporate-actions dataset.",
+  "description": "SEC-documented execution/distribution dates are distinct from first split-adjusted trading dates. TEST FIXTURES only.",
   "events": [
     {
-      "ticker": "AAPL", "cik": 320193, "effectiveDate": "2020-08-31",
+      "ticker": "AAPL",
+      "cik": 320193,
+      "effectiveDate": "2020-08-28",
       "sharesAfterPerBefore": 4,
       "verified": true,
       "secAccession": "0000320193-20-000096",
       "secUrl": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/aapl-20200926.htm",
-      "restatedComparatives": true
+      "restatedComparatives": true,
+      "tradingBasisDate": "2020-08-31"
     },
     {
-      "ticker": "NVDA", "cik": 1045810, "effectiveDate": "2024-06-10",
+      "ticker": "NVDA",
+      "cik": 1045810,
+      "effectiveDate": "2024-06-07",
       "sharesAfterPerBefore": 10,
       "verified": true,
       "secAccession": "0001045810-24-000144",
       "secUrl": "https://www.sec.gov/Archives/edgar/data/1045810/000104581024000144/nvda-20240607.htm",
-      "restatedComparatives": true
+      "restatedComparatives": true,
+      "tradingBasisDate": "2024-06-10"
     },
     {
-      "ticker": "TSLA", "cik": 1318605, "effectiveDate": "2022-08-25",
+      "ticker": "TSLA",
+      "cik": 1318605,
+      "effectiveDate": "2022-08-24",
       "sharesAfterPerBefore": 3,
       "verified": true,
       "secAccession": "0001564590-22-028207",
-      "secUrl": "https://www.sec.gov/Archives/edgar/data/1318605/000156459022028207/tsla-ex991_6.htm",
-      "restatedComparatives": true
+      "secUrl": "https://www.sec.gov/Archives/edgar/data/1318605/000156459022028207/tsla-8k_20220804.htm",
+      "restatedComparatives": true,
+      "tradingBasisDate": "2022-08-25"
     }
   ]
 }
