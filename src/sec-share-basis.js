@@ -124,8 +124,13 @@ export function normalizeUsingSECShareGraph(rows,graph,findSource) {
     const adjusted={...row};
     for(const metric of ['dilutedEPS','dilutedShares']){
       if(!isNumber(row[metric]))continue;
-      const source=findSource(row,metric);
-      const factor=!bad && source?.accn ? graph.shareFactors[source.accn] : undefined;
+      const possible=findSource(row,metric);
+      const options=Array.isArray(possible)?possible:[possible];
+      const same=r=>r?.accn && isNumber(r.val) &&
+        Math.abs(r.val-row[metric])<=Math.max(1e-8,Math.abs(row[metric])*1e-7);
+      const source=options.find(r=>same(r) && isNumber(graph.shareFactors[r.accn])) ||
+        options.find(same) || options[0];
+      const factor=!bad && same(source) ? graph.shareFactors[source.accn] : undefined;
       if(!isNumber(factor)||factor<=0){
         adjusted[metric]=null;
         issues.push({periodEnd:row.fiscalPeriodEnd,metric,status:'SEC-share-basis-unconnected',accn:source?.accn||null});
