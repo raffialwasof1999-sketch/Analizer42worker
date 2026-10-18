@@ -149,7 +149,7 @@ export async function inspectSplitFilingBatch(candidates,fetchText,{maxDocuments
         const mentions=extractSplitMentions(text,{
           accession:filing.accession,filed:filing.filed,url:filing.filingDocumentUrl
         });
-        return {accession:filing.accession,url:filing.filingDocumentUrl,mentions};
+        return {accession:filing.accession,url:filing.filingDocumentUrl,mentions:mentions.map(m=>({...m,form:filing.form}))};
       }catch(error){
         return {accession:filing.accession,error:String(error?.message||error).slice(0,140)};
       }
@@ -164,6 +164,7 @@ export async function inspectSplitFilingBatch(candidates,fetchText,{maxDocuments
     documentsWithSplitMentions:documents.filter(d=>d.mentions.length).length,
     failedDocuments:failures,mentions:mentions.slice(0,200),
     summaries:summarizeSplitMentions(mentions),
+    verifiedEvents:verifiedCompletedSplits(mentions),
     status:failures.length ? 'partial-evidence' : 'scanned-selected-filings',
     normalizationApplied:false
   };
