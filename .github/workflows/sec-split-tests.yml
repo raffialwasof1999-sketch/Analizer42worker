@@ -39,7 +39,10 @@ jobs:
               done
               curl --fail --silent --show-error --max-time 90 \
                 "$PREVIEW_URL/?ticker=AAPL" -o /tmp/default.json
-              node -e "const d=require('/tmp/default.json');const basis=require('/tmp/basis.json');if(!d.success||!d.stockSplitAudit.companyFactsNormalization.annualApplied) {console.error(d.error||d.stockSplitAudit);process.exit(5)}; const x=d.annualFinancials.find(x=>x.fiscalYear===2019),y=basis.adjustedAnnualFinancials.rows.find(x=>x.fiscalYear===2019);if(!x||!y||x.dilutedEPS!==y.dilutedEPS)process.exit(6); console.log(JSON.stringify({defaultAnnualAdjusted:true,year:2019,eps:x.dilutedEPS,quarterlyApplied:d.stockSplitAudit.companyFactsNormalization.quarterlyApplied}))"
+              node -e "const d=require('/tmp/default.json');const basis=require('/tmp/basis.json');if(!d.success||!d.stockSplitAudit.companyFactsNormalization.annualApplied) {console.error(d.error||d.stockSplitAudit);process.exit(5)}; const x=d.annualFinancials.find(x=>x.fiscalYear===2019),y=basis.adjustedAnnualFinancials.rows.find(x=>x.fiscalYear===2019);if(!x||!y||x.dilutedEPS!==y.dilutedEPS)process.exit(6); if(JSON.stringify(Object.keys(d.annualFinancials[0]))!==JSON.stringify(Object.keys(basis.originalAnnualFinancials[0])))process.exit(7); if(JSON.stringify(Object.keys(d.quarterlyFinancials[0]))!==JSON.stringify(Object.keys(basis.originalQuarterlyFinancials[0])))process.exit(8); console.log(JSON.stringify({defaultAnnualAdjusted:true,year:2019,eps:x.dilutedEPS,quarterlyApplied:d.stockSplitAudit.companyFactsNormalization.quarterlyApplied}))"
+              curl --fail --silent --show-error --max-time 90 \
+                "$PREVIEW_URL/?ticker=MSFT" -o /tmp/msft-default.json
+              node -e "const d=require('/tmp/msft-default.json');if(!d.success || d.stockSplitAudit.companyFactsNormalization.annualApplied)process.exit(9);console.log('No-split Microsoft retains original EPS')"
               node -e "if(require('/tmp/response.json').splitDiscovery.documentsRead<1)process.exit(2)"
               exit 0
             fi
