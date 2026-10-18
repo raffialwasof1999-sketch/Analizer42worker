@@ -205,6 +205,8 @@ export function verifiedCompletedSplits(mentions) {
     const event=events.get(key);
     if(!event.secAccessions.includes(mention.accession))event.secAccessions.push(mention.accession);
     if(mention.retrospectiveEPSLanguage &&
+       /per[ -]share/i.test(mention.narrative) &&
+       ['10-K','10-K/A','10-Q','10-Q/A'].includes(mention.form) &&
        !event.basisProofAccessions.includes(mention.accession)) {
       event.basisProofAccessions.push(mention.accession);
     }
