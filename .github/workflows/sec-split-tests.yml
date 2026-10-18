@@ -14,7 +14,7 @@ jobs:
       - run: npm test
 
   live-preview:
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[live-smoke]')
+    if: github.event_name == 'pull_request'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 8
