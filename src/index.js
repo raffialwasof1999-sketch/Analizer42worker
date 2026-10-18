@@ -867,6 +867,54 @@ export default {
 
       validateOutput(annualFinancials,quarterlyFinancials);
 
+      // Automatic normalization is SEC-only. Changed split bases are applied
+      // to annual history where graph evidence is consistent. Unconnected
+      // historical EPS becomes null rather than an inaccurate comparison.
+      // Quarterlies only switch when the entire set is provably connected,
+      // preserving recent reported EPS used in the live P/E calculation.
+      const basisGraph=buildSECShareBasisGraph(facts);
+      const sourceCandidates=(row,metric,kind,forms)=>{
+        const matching=(map[metric]||[]).filter(r=>
+          r.end===row.fiscalPeriodEnd && forms.includes(r.form) &&
+          validDate(r.start) && (
+            kind==='annual'
+              ? dayCount(r.start,r.end)>=330 && dayCount(r.start,r.end)<=385
+              : dayCount(r.start,r.end)>=60 && dayCount(r.start,r.end)<=110
+          ));
+        return [chooseRecord(map[metric],row.fiscalPeriodEnd,kind,forms),
+          ...matching].filter(Boolean);
+      };
+      const annualNormalized=normalizeUsingSECShareGraph(
+        annualFinancials,basisGraph,(row,metric)=>
+          sourceCandidates(row,metric,'annual',['10-K','10-K/A'])
+      );
+      const quarterlyNormalized=normalizeUsingSECShareGraph(
+        quarterlyFinancials,basisGraph,(row,metric)=>
+          sourceCandidates(row,metric,'quarter',
+            row.fiscalQuarter===4 ? ['10-K','10-K/A'] : ['10-Q','10-Q/A'])
+      );
+      const splitDetected=basisGraph.changedBasisEdges.length>0;
+      const consistent=basisGraph.conflicts.length===0;
+      const autoAnnual=splitDetected && consistent;
+      const autoQuarterly=autoAnnual && quarterlyNormalized.complete;
+      const finalAnnual=autoAnnual?annualNormalized.rows:annualFinancials;
+      const finalQuarterly=autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials;
+      stockSplitAudit.companyFactsNormalization={
+        method:basisGraph.method,
+        anchorAccession:basisGraph.anchorAccession,
+        anchorFiled:basisGraph.anchorFiled,
+        changedBasisEdges:basisGraph.changedBasisEdges.length,
+        conflictCount:basisGraph.conflicts.length,
+        annualApplied:autoAnnual,
+        quarterlyApplied:autoQuarterly,
+        annualUnverified:annualNormalized.issues.length,
+        quarterlyUnverified:quarterlyNormalized.issues.length,
+        limitation:'SEC-only inferred historical share basis; may not capture a split after the most recent financial filing.'
+      };
+      if(splitDetected)stockSplitAudit.status=autoAnnual
+        ? 'automatically-adjusted-from-SEC-evidence'
+        : 'SEC-split-evidence-conflicting';
+
       const index = (sub.tickers||[]).findIndex(t =>
         String(t).toUpperCase()===ticker
       );
@@ -878,8 +926,8 @@ export default {
         cik,
         companyName:facts.entityName||company.title||ticker,
         exchange:index>=0?(sub.exchanges?.[index]||''):'',
-        annualFinancials,
-        quarterlyFinancials,
+        annualFinancials:finalAnnual,
+        quarterlyFinancials:finalQuarterly,
         stockSplitAudit,
         coverage:{
           annualYears:annualFinancials.length,
@@ -891,7 +939,7 @@ export default {
               quarterlyFinancials[i].fiscalQuarter===
               r.fiscalYear*4+r.fiscalQuarter+1
             ),
-          note:'Only reported SEC facts are imported; unavailable metrics remain blank.'
+          note:'SEC reported facts; historical diluted EPS/shares automatically normalized only where overlapping SEC filing evidence supports the share basis. Unverifiable earlier EPS may be blank.'
         },
         retrievedAt:new Date().toISOString(),
         provenance:
