@@ -119,21 +119,24 @@ export function selectSplitFilings(candidates,maxDocuments=30) {
     if (!x || seen.has(x.accession) || result.length>=cap) return;
     seen.add(x.accession);result.push(x);
   };
-  // Strongest machine-readable hint: ratio tag linked to this filing.
-  sorted.filter(x=>x.splitRatioFacts?.length).forEach(append);
-  // One annual statement per year provides retrospective stock-split notes.
+  // Reserve capacity for all evidence types. A large set of duplicate
+  // XBRL references must not crowd out annual reports and event 8-K filings.
+  const evidenceBudget=Math.max(1,Math.floor(cap*0.16));
+  const annualBudget=Math.max(1,Math.floor(cap*0.67));
+  const eventBudget=Math.max(1,cap-evidenceBudget-annualBudget);
+  sorted.filter(x=>x.splitRatioFacts?.length).slice(0,evidenceBudget).forEach(append);
   const years=new Set();
+  let annualCount=0;
   for(const x of sorted){
     if (!['10-K','10-K/A'].includes(x.form)) continue;
     const year=x.reportDate?.slice(0,4)||x.filed.slice(0,4);
-    if (years.has(year)) continue;
-    years.add(year); append(x);
+    if(years.has(year))continue;
+    years.add(year);
+    if(annualCount++ < annualBudget)append(x);
   }
-  // Split amendments and miscellaneous 8-K disclosures can carry effective dates.
-  sorted.filter(x=>x.form?.startsWith('8-K') &&
-    /(?:^|[^0-9])5\.03(?:$|[^0-9])/.test(x.items||'')).forEach(append);
-  sorted.filter(x=>x.form?.startsWith('8-K') &&
-    /(?:^|[^0-9])8\.01(?:$|[^0-9])/.test(x.items||'')).forEach(append);
+  const events=sorted.filter(x=>x.form?.startsWith('8-K') &&
+    /(?:^|[^0-9])(?:5\.03|8\.01)(?:$|[^0-9])/.test(x.items||''));
+  events.slice(0,eventBudget).forEach(append);
   return result;
 }
 
