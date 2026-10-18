@@ -358,6 +358,9 @@ export function secRestatementEvidence(companyFacts, verifiedEvents, limit=100) 
       groups.get(key).push(r);
     }
     for (const split of verifiedEvents) {
+      if (split?.verified !== true || typeof split.effectiveDate !== 'string' ||
+          !Number.isFinite(split.sharesAfterPerBefore) ||
+          split.sharesAfterPerBefore <= 0) continue;
       for (const group of groups.values()) {
         const before = group.filter(r => r.filed < split.effectiveDate)
           .sort((a,b)=>b.filed.localeCompare(a.filed))[0];
