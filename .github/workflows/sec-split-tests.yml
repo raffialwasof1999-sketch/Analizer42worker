@@ -37,6 +37,9 @@ jobs:
                   "$PREVIEW_URL/?ticker=$TICKER&basisAudit=1" -o /tmp/company.json
                 node -e "const d=require('/tmp/company.json');if(!d.success||!d.shareBasisGraph){console.error(d.error||d);process.exit(4)}; console.log(JSON.stringify({ticker:d.ticker,filings:d.shareBasisGraph.filingCount,connected:d.shareBasisGraph.connectedFilings,changedEdges:d.shareBasisGraph.changedBasisEdges.length,conflicts:d.shareBasisGraph.conflicts.length,adjustedAnnual:d.adjustedAnnualFinancials.adjustments.length,issues:d.adjustedAnnualFinancials.issues.length}))"
               done
+              curl --fail --silent --show-error --max-time 90 \
+                "$PREVIEW_URL/?ticker=AAPL" -o /tmp/default.json
+              node -e "const d=require('/tmp/default.json');const basis=require('/tmp/basis.json');if(!d.success||!d.stockSplitAudit.companyFactsNormalization.annualApplied) {console.error(d.error||d.stockSplitAudit);process.exit(5)}; const x=d.annualFinancials.find(x=>x.fiscalYear===2019),y=basis.adjustedAnnualFinancials.rows.find(x=>x.fiscalYear===2019);if(!x||!y||x.dilutedEPS!==y.dilutedEPS)process.exit(6); console.log(JSON.stringify({defaultAnnualAdjusted:true,year:2019,eps:x.dilutedEPS,quarterlyApplied:d.stockSplitAudit.companyFactsNormalization.quarterlyApplied}))"
               node -e "if(require('/tmp/response.json').splitDiscovery.documentsRead<1)process.exit(2)"
               exit 0
             fi
