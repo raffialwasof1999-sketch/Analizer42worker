@@ -1,4 +1,5 @@
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates } from './sec-splits.js';
+import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -589,6 +590,65 @@ function validateOutput(a,q) {
   }
 }
 
+
+async function limitedSecDocument(filing) {
+  if (!filing.filingDocumentUrl?.startsWith('https://www.sec.gov/Archives/edgar/data/')) {
+    throw Error('Untrusted SEC document location');
+  }
+  const response=await fetch(filing.filingDocumentUrl,{
+    headers:{'User-Agent':CONTACT,'Accept':'text/html,text/plain'},
+    redirect:'error',cf:{cacheTtl:86400,cacheEverything:true}
+  });
+  if (!response.ok) throw Error('SEC filing returned '+response.status);
+  const maxBytes=6_000_000;
+  const size=Number(response.headers.get('content-length'));
+  if (Number.isFinite(size) && size>maxBytes) throw Error('SEC filing too large');
+  const reader=response.body?.getReader();
+  if (!reader) throw Error('SEC filing body missing');
+  const chunks=[]; let bytes=0;
+  try {
+    while(true){
+      const {done,value}=await reader.read();
+      if(done) break;
+      bytes+=value.byteLength;
+      if(bytes>maxBytes) throw Error('SEC filing too large');
+      chunks.push(value);
+    }
+  } finally {
+    if(bytes>maxBytes) await reader.cancel();
+  }
+  const all=new Uint8Array(bytes);
+  let offset=0;
+  for(const chunk of chunks){all.set(chunk,offset);offset+=chunk.length;}
+  return new TextDecoder().decode(all);
+}
+
+/** Historic submissions live in additional free SEC JSON archives. */
+async function historicalSplitFilings(sub,cik,structuredEvidence) {
+  const listings=[secSplitFilingCandidates(sub,structuredEvidence)];
+  const files=(sub.filings?.files||[])
+    .filter(f=>/^\d{4}-\d{2}-\d{2}$/.test(f.filingTo||'') &&
+      f.filingTo >= '2005-01-01' &&
+      /^CIK\d{10}-submissions-\d{3}\.json$/.test(f.name||''))
+    .slice(0,25);
+  const failed=[];
+  for(let i=0;i<files.length;i+=3){
+    const batch=await Promise.all(files.slice(i,i+3).map(async item=>{
+      try {
+        const x=await secFetch(SEC+'/submissions/'+item.name);
+        return secSplitFilingCandidates({cik,filings:{recent:x}},structuredEvidence);
+      }catch(error){
+        failed.push({file:item.name,error:String(error?.message||error).slice(0,100)});
+        return [];
+      }
+    }));
+    listings.push(...batch);
+  }
+  const map=new Map();
+  for(const item of listings.flat()) if(!map.has(item.accession))map.set(item.accession,item);
+  return {candidates:[...map.values()],failedArchives:failed,archiveCount:files.length};
+}
+
 export default {
   async fetch(request) {
     if (request.method!=='GET') {
@@ -651,6 +711,20 @@ export default {
       const stockSplitAudit = splitAudit(facts);
       const allFilingCandidates = secSplitFilingCandidates(sub,stockSplitAudit.candidates);
       stockSplitAudit.filingCandidates = allFilingCandidates.slice(0,30);
+
+      if (url.searchParams.get('discoverSplits') === '1') {
+        const historical=await historicalSplitFilings(sub,Number(cik),stockSplitAudit.candidates);
+        const scan=await inspectSplitFilingBatch(historical.candidates,limitedSecDocument,
+          {maxDocuments:30});
+        return json({
+          schemaVersion:VERSION,success:true,ticker,cik,
+          splitDiscovery:{...scan,archiveCount:historical.archiveCount,
+            failedArchives:historical.failedArchives,
+            filingCandidatesFound:historical.candidates.length},
+          annualFinancials:null,quarterlyFinancials:null,
+          note:'SEC filing discovery only; split dates and per-share normalization require verified evidence.'
+        });
+      }
 
       if (inspectAccession !== null) {
         const candidate = allFilingCandidates.find(f =>
