@@ -600,6 +600,7 @@ async function limitedSecDocument(filing) {
     headers:{'User-Agent':CONTACT,'Accept':'text/html,text/plain'},
     redirect:'error',cf:{cacheTtl:86400,cacheEverything:true}
   });
+  if (response.status>=300 && response.status<400) throw Error('Unexpected SEC redirect');
   if (!response.ok) throw Error('SEC filing returned '+response.status);
   const maxBytes=6_000_000;
   const size=Number(response.headers.get('content-length'));
