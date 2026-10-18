@@ -28,7 +28,7 @@ jobs:
             if curl --fail --silent --show-error --max-time 125 \
               "$PREVIEW_URL/?ticker=AAPL&discoverSplits=1&maxDocuments=8" \
               -o /tmp/response.json; then
-              node -e "const f=require('/tmp/response.json');if(!f.success || !f.splitDiscovery) {console.error(f);process.exit(1)};console.log(JSON.stringify({ticker:f.ticker,documentsRead:f.splitDiscovery.documentsRead,archiveCount:f.splitDiscovery.archiveCount,failedArchives:f.splitDiscovery.failedArchives,verifiedEvents:f.splitDiscovery.verifiedEvents,previewCount:f.splitDiscovery.normalizedPreview.length}))"
+              node -e "const f=require('/tmp/response.json');if(!f.success || !f.splitDiscovery) {console.error(f);process.exit(1)};console.log(JSON.stringify({ticker:f.ticker,documentsRead:f.splitDiscovery.documentsRead,archiveCount:f.splitDiscovery.archiveCount,failedArchives:f.splitDiscovery.failedArchives,verifiedEvents:f.splitDiscovery.verifiedEvents,previewCount:f.splitDiscovery.normalizedPreview.length,failedDocuments:f.splitDiscovery.failedDocuments}));if(f.splitDiscovery.documentsRead<1)process.exit(2)"
               exit 0
             fi
             sleep 15
