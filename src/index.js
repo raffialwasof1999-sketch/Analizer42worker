@@ -1,4 +1,4 @@
-import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates } from './sec-splits.js';
+import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 
 /**
@@ -716,13 +716,18 @@ export default {
         const historical=await historicalSplitFilings(sub,Number(cik),stockSplitAudit.candidates);
         const scan=await inspectSplitFilingBatch(historical.candidates,limitedSecDocument,
           {maxDocuments:30});
+        const reportingRestatements=secRestatementEvidence(facts,scan.verifiedEvents);
+        const normalizedPreview=previewProvenPerShare(
+          facts,scan.verifiedEvents,new Date().toISOString().slice(0,10)
+        );
         return json({
           schemaVersion:VERSION,success:true,ticker,cik,
-          splitDiscovery:{...scan,archiveCount:historical.archiveCount,
+          splitDiscovery:{...scan,reportingRestatements,normalizedPreview,
+            splitHistoryComplete:false,archiveCount:historical.archiveCount,
             failedArchives:historical.failedArchives,
             filingCandidatesFound:historical.candidates.length},
           annualFinancials:null,quarterlyFinancials:null,
-          note:'SEC filing discovery only; split dates and per-share normalization require verified evidence.'
+          note:'Only explicit completed SEC disclosures become verified events. Preview is restricted to filings with retrospective per-share basis proof; historical split completeness cannot be guaranteed.'
         });
       }
 
