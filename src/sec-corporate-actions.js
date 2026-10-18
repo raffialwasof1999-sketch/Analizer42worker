@@ -106,3 +106,65 @@ export function summarizeSplitMentions(mentions) {
     };
   }).sort((a,b)=>a.candidateDate.localeCompare(b.candidateDate));
 }
+
+/** Select candidate filings across archived submissions without assuming all filings mention splits. */
+export function selectSplitFilings(candidates,maxDocuments=30) {
+  const cap=Math.max(1,Math.min(50,Math.trunc(maxDocuments)||30));
+  const unique=[...new Map((candidates||[]).filter(x=>x?.filingDocumentUrl && x.accession)
+    .map(x=>[x.accession,x])).values()];
+  const sorted=unique.sort((a,b)=>b.filed.localeCompare(a.filed));
+  const result=[];
+  const seen=new Set();
+  const append=x=>{
+    if (!x || seen.has(x.accession) || result.length>=cap) return;
+    seen.add(x.accession);result.push(x);
+  };
+  // Strongest machine-readable hint: ratio tag linked to this filing.
+  sorted.filter(x=>x.splitRatioFacts?.length).forEach(append);
+  // One annual statement per year provides retrospective stock-split notes.
+  const years=new Set();
+  for(const x of sorted){
+    if (!['10-K','10-K/A'].includes(x.form)) continue;
+    const year=x.reportDate?.slice(0,4)||x.filed.slice(0,4);
+    if (years.has(year)) continue;
+    years.add(year); append(x);
+  }
+  // Split amendments and miscellaneous 8-K disclosures can carry effective dates.
+  sorted.filter(x=>x.form?.startsWith('8-K') &&
+    /(?:^|[^0-9])5\.03(?:$|[^0-9])/.test(x.items||'')).forEach(append);
+  sorted.filter(x=>x.form?.startsWith('8-K') &&
+    /(?:^|[^0-9])8\.01(?:$|[^0-9])/.test(x.items||'')).forEach(append);
+  return result;
+}
+
+/** Bounded sequential-in-batches document inspection. Skips blocked and oversize SEC filings. */
+export async function inspectSplitFilingBatch(candidates,fetchText,{maxDocuments=30}={}) {
+  const selected=selectSplitFilings(candidates,maxDocuments);
+  const documents=[],failures=[];
+  for(let i=0;i<selected.length;i+=2){
+    const chunk=selected.slice(i,i+2);
+    const found=await Promise.all(chunk.map(async filing=>{
+      try{
+        const text=await fetchText(filing);
+        const mentions=extractSplitMentions(text,{
+          accession:filing.accession,filed:filing.filed,url:filing.filingDocumentUrl
+        });
+        return {accession:filing.accession,url:filing.filingDocumentUrl,mentions};
+      }catch(error){
+        return {accession:filing.accession,error:String(error?.message||error).slice(0,140)};
+      }
+    }));
+    for(const r of found) {
+      if(r.error) failures.push(r); else documents.push(r);
+    }
+  }
+  const mentions=documents.flatMap(d=>d.mentions);
+  return {
+    documentsAttempted:selected.length,documentsRead:documents.length,
+    documentsWithSplitMentions:documents.filter(d=>d.mentions.length).length,
+    failedDocuments:failures,mentions:mentions.slice(0,200),
+    summaries:summarizeSplitMentions(mentions),
+    status:failures.length ? 'partial-evidence' : 'scanned-selected-filings',
+    normalizationApplied:false
+  };
+}
