@@ -714,8 +714,11 @@ export default {
 
       if (url.searchParams.get('discoverSplits') === '1') {
         const historical=await historicalSplitFilings(sub,Number(cik),stockSplitAudit.candidates);
+        const requestedLimit=Number(url.searchParams.get('maxDocuments')||30);
+        const maxDocuments=Number.isSafeInteger(requestedLimit) &&
+          requestedLimit>=1 && requestedLimit<=50 ? requestedLimit : 30;
         const scan=await inspectSplitFilingBatch(historical.candidates,limitedSecDocument,
-          {maxDocuments:30});
+          {maxDocuments});
         const reportingRestatements=secRestatementEvidence(facts,scan.verifiedEvents);
         const normalizedPreview=previewProvenPerShare(
           facts,scan.verifiedEvents,new Date().toISOString().slice(0,10)
