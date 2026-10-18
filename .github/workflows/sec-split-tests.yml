@@ -12,3 +12,25 @@ jobs:
         with:
           node-version: '22'
       - run: npm test
+
+  live-preview:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[live-smoke]')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check Cloudflare preview with live SEC data
+        env:
+          PREVIEW_URL: https://feature-sec-split-audit-analyzer42-sec.raffialwasof-1999.workers.dev
+        run: |
+          sleep 45
+          for attempt in 1 2 3; do
+            if curl --fail --silent --show-error --max-time 125 \
+              "$PREVIEW_URL/?ticker=AAPL&discoverSplits=1&maxDocuments=8" \
+              -o /tmp/response.json; then
+              node -e "const f=require('/tmp/response.json');if(!f.success || !f.splitDiscovery) {console.error(f);process.exit(1)};console.log(JSON.stringify({ticker:f.ticker,documentsRead:f.splitDiscovery.documentsRead,archiveCount:f.splitDiscovery.archiveCount,failedArchives:f.splitDiscovery.failedArchives,verifiedEvents:f.splitDiscovery.verifiedEvents,previewCount:f.splitDiscovery.normalizedPreview.length}))"
+              exit 0
+            fi
+            sleep 15
+          done
+          exit 1
