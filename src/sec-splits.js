@@ -377,3 +377,51 @@ export function secRestatementEvidence(companyFacts, verifiedEvents, limit=100) 
   }
   return results.slice(0,Math.max(0,Math.min(limit,500)));
 }
+
+/**
+ * Preview adjustments ONLY for SEC filings explicitly disclosing retrospective
+ * per-share split restatement. Never mutate raw SEC financial rows.
+ * A preview is not a claim that all historical splits have been discovered.
+ */
+export function previewProvenPerShare(companyFacts,verifiedEvents,targetDate) {
+  if(!Array.isArray(verifiedEvents))throw Error('Verified split events required');
+  const proofs=new Map();
+  for(const event of verifiedEvents){
+    if(event?.verified!==true || !Array.isArray(event.basisProofAccessions) ||
+       !/^\d{4}-\d{2}-\d{2}$/.test(event.effectiveDate||''))continue;
+    for(const accn of event.basisProofAccessions){
+      if(!/^\d{10}-\d{2}-\d{6}$/.test(accn))continue;
+      const old=proofs.get(accn);
+      if(!old || event.effectiveDate>old)proofs.set(accn,event.effectiveDate);
+    }
+  }
+  const gaap=companyFacts?.facts?.['us-gaap']||{};
+  const concepts=[
+    ['EarningsPerShareDiluted','dilutedEPS','USD/shares'],
+    ['EarningsPerShareBasic','basicEPS','USD/shares'],
+    ['WeightedAverageNumberOfDilutedSharesOutstanding','dilutedShares','shares'],
+    ['WeightedAverageNumberOfSharesOutstandingBasic','basicShares','shares']
+  ];
+  const rows=[];
+  for(const [tag,metric,unit] of concepts){
+    for(const fact of gaap[tag]?.units?.[unit]||[]){
+      const basisThrough=proofs.get(fact.accn);
+      if(!basisThrough || !fact.start || !fact.end || !Number.isFinite(fact.val))continue;
+      if(!['10-K','10-Q','10-K/A','10-Q/A'].includes(fact.form))continue;
+      const observation={...fact,metric,basisVerified:true,basisThrough,
+        basisSecAccession:fact.accn};
+      try{
+        const adjusted=normalizeProvenObservation(observation,targetDate,verifiedEvents);
+        rows.push({
+          metric,start:fact.start,end:fact.end,sourceAccession:fact.accn,
+          filed:fact.filed,reported:fact.val,normalized:adjusted.adjusted,
+          factor:adjusted.cumulativeFactor,basisThrough,
+          status:'proven-filing-basis-preview'
+        });
+      }catch{
+        // Missing or inconsistent proof: omit rather than invent numbers.
+      }
+    }
+  }
+  return rows.slice(0,1000);
+}
