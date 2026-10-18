@@ -168,3 +168,45 @@ export async function inspectSplitFilingBatch(candidates,fetchText,{maxDocuments
     normalizationApplied:false
   };
 }
+
+/**
+ * Narrow affirmative proof: an SEC report must say an action was completed
+ * on an explicit date in the same clause as the ratio. An announcement,
+ * record date, or projected split-adjusted trading date is NOT enough.
+ * The retrospective-accounting note is separate evidence about that filing.
+ */
+export function verifiedCompletedSplits(mentions) {
+  const events=new Map();
+  const dt=MONTH+'\\s+\\d{1,2},?\\s+20\\d{2}';
+  const leading=new RegExp('\\bOn\\s+('+dt+'),?\\s+(?:the\\s+)?(?:Company|Registrant|Issuer|we)\\s+(?:effected|completed|implemented|executed)\\s+(?:a|an)\\s*$','i');
+  const trailing=new RegExp('^\\s+(?:(?:which|that)\\s+)?(?:was\\s+)?(?:effective|effected)\\s+(?:on|as\\s+of)\\s+('+dt+')','i');
+  for(const mention of mentions||[]) {
+    if (!mention?.executedLanguage || mention.proposedOrConditional ||
+        !/^\d{10}-\d{2}-\d{6}$/.test(mention.accession||'') ||
+        !(mention.ratio>0) || !mention.filed || !mention.narrative ||
+        !mention.ratioText) continue;
+    const index=mention.narrative.indexOf(mention.ratioText);
+    if(index<0)continue;
+    const prefix=mention.narrative.slice(Math.max(0,index-160),index);
+    const suffix=mention.narrative.slice(index+mention.ratioText.length,index+mention.ratioText.length+100);
+    const match=prefix.match(leading)||suffix.match(trailing);
+    if (!match) continue;
+    const dates=getDates(match[1]);
+    if (dates.length!==1 || dates[0].date>mention.filed) continue;
+    const effectiveDate=dates[0].date;
+    const key=effectiveDate+'|'+mention.ratio;
+    if(!events.has(key))events.set(key,{
+      effectiveDate,sharesAfterPerBefore:mention.ratio,
+      verified:true,confirmation:'explicit-completed-SEC-disclosure',
+      secAccession:mention.accession,secAccessions:[],
+      basisProofAccessions:[],basisThrough:effectiveDate
+    });
+    const event=events.get(key);
+    if(!event.secAccessions.includes(mention.accession))event.secAccessions.push(mention.accession);
+    if(mention.retrospectiveEPSLanguage &&
+       !event.basisProofAccessions.includes(mention.accession)) {
+      event.basisProofAccessions.push(mention.accession);
+    }
+  }
+  return [...events.values()].sort((a,b)=>a.effectiveDate.localeCompare(b.effectiveDate));
+}
