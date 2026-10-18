@@ -27,3 +27,15 @@ test('strict financial rows normalize only proven SEC filing basis',()=>{
   assert.equal(audit.issues.length,2);
   assert.equal(audit.complete,false);
 });
+
+test('same SEC comparative value may be tied to earlier proven filing',()=>{
+  const rows=[{fiscalPeriodEnd:'2019-12-31',dilutedEPS:2,netIncome:200}];
+  const resolver=(row,metric)=>[
+    {accn:'0000320193-22-000077',val:row[metric]},
+    {accn:source,val:row[metric]}
+  ];
+  const audit=auditedSplitRows(rows,events,'2025-01-01',resolver);
+  assert.equal(audit.rows[0].dilutedEPS,1);
+  assert.equal(audit.adjustments[0].sourceAccession,source);
+  assert.equal(audit.issues.length,0);
+});
