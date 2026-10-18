@@ -1,7 +1,7 @@
 name: SEC split audit tests
 on:
   push:
-    branches: [feature/sec-split-audit]
+    branches: [main, feature/sec-split-audit]
   pull_request:
 jobs:
   test:
