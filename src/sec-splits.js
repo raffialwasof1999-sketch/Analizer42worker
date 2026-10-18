@@ -328,3 +328,49 @@ export function compareRestatedPerShare(before, after, split) {
     periodEnd:before.end
   };
 }
+
+/**
+ * Compare genuinely reported SEC CompanyFacts records for a period across
+ * filing dates. These results are evidence, not authorization to adjust EPS.
+ * Split events must already have separately verified effective dates.
+ */
+export function secRestatementEvidence(companyFacts, verifiedEvents, limit=100) {
+  const gaap = companyFacts?.facts?.['us-gaap'] || {};
+  const tags = [
+    ['EarningsPerShareDiluted','dilutedEPS','USD/shares'],
+    ['EarningsPerShareBasic','basicEPS','USD/shares'],
+    ['WeightedAverageNumberOfDilutedSharesOutstanding','dilutedShares','shares'],
+    ['WeightedAverageNumberOfSharesOutstandingBasic','basicShares','shares']
+  ];
+  const results = [];
+  if (!Array.isArray(verifiedEvents)) return results;
+  for (const [tag,metric,unit] of tags) {
+    const observations = (gaap[tag]?.units?.[unit] || [])
+      .filter(r => r && typeof r.start === 'string' &&
+        typeof r.end === 'string' && typeof r.filed === 'string' &&
+        typeof r.accn === 'string' && Number.isFinite(r.val) &&
+        ['10-K','10-K/A','10-Q','10-Q/A'].includes(r.form))
+      .map(r => ({...r,metric,unit}));
+    const groups = new Map();
+    for (const r of observations) {
+      const key = [r.start,r.end].join('|');
+      if (!groups.has(key)) groups.set(key,[]);
+      groups.get(key).push(r);
+    }
+    for (const split of verifiedEvents) {
+      for (const group of groups.values()) {
+        const before = group.filter(r => r.filed < split.effectiveDate)
+          .sort((a,b)=>b.filed.localeCompare(a.filed))[0];
+        const after = group.filter(r => r.filed >= split.effectiveDate)
+          .sort((a,b)=>a.filed.localeCompare(b.filed))[0];
+        if (!before || !after) continue;
+        const comparison = compareRestatedPerShare(before,after,split);
+        if (comparison.status !== 'inconclusive') {
+          results.push({...comparison,metric,splitDate:split.effectiveDate,
+            beforeFiled:before.filed,afterFiled:after.filed});
+        }
+      }
+    }
+  }
+  return results.slice(0,Math.max(0,Math.min(limit,500)));
+}
