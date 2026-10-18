@@ -1,5 +1,6 @@
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
+import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -706,6 +707,45 @@ export default {
         throw Error(
           'No SEC us-gaap Company Facts; issuer not supported.'
         );
+      }
+
+      if (url.searchParams.get('basisAudit') === '1') {
+        const graph=buildSECShareBasisGraph(facts);
+        const shareMap=Object.fromEntries(Object.keys(TAGS).map(k=>[
+          k,fieldFacts(gaap,k)
+        ]));
+        const fiscalEnds=periods(shareMap);
+        const annual=buildAnnual(shareMap,fiscalEnds);
+        const quarterly=buildQuarterly(shareMap,fiscalEnds);
+        enrichQuarterDates(quarterly,sub);
+        coverShares(quarterly,facts);
+        const findFact=(row,metric,kind,forms)=>{
+          const list=(shareMap[metric]||[]).filter(r=>
+            r.end===row.fiscalPeriodEnd && forms.includes(r.form) &&
+            validDate(r.start) && (
+              kind==='annual'
+                ? dayCount(r.start,r.end)>=330 && dayCount(r.start,r.end)<=385
+                : dayCount(r.start,r.end)>=60 && dayCount(r.start,r.end)<=110
+            ));
+          const first=chooseRecord(shareMap[metric],row.fiscalPeriodEnd,kind,forms);
+          return [first,...list].filter(Boolean);
+        };
+        const adjustedAnnual=normalizeUsingSECShareGraph(
+          annual,graph,(row,metric)=>findFact(row,metric,'annual',['10-K','10-K/A'])
+        );
+        const adjustedQuarterly=normalizeUsingSECShareGraph(
+          quarterly,graph,(row,metric)=>findFact(row,metric,'quarter',
+            row.fiscalQuarter===4?['10-K','10-K/A']:['10-Q','10-Q/A'])
+        );
+        return json({
+          schemaVersion:VERSION,success:true,ticker,cik,
+          originalAnnualFinancials:annual,
+          originalQuarterlyFinancials:outputRows(quarterly,QUARTER_FIELDS),
+          shareBasisGraph:graph,
+          adjustedAnnualFinancials:adjustedAnnual,
+          adjustedQuarterlyFinancials:adjustedQuarterly,
+          note:'SEC-only cross-filing share-basis inference. Unconnected or contradictory per-share observations remain null in adjusted financials.'
+        });
       }
 
       const stockSplitAudit = splitAudit(facts);
