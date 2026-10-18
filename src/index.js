@@ -1,3 +1,6 @@
+import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
+import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
+import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -588,6 +591,66 @@ function validateOutput(a,q) {
   }
 }
 
+
+async function limitedSecDocument(filing) {
+  if (!filing.filingDocumentUrl?.startsWith('https://www.sec.gov/Archives/edgar/data/')) {
+    throw Error('Untrusted SEC document location');
+  }
+  const response=await fetch(filing.filingDocumentUrl,{
+    headers:{'User-Agent':CONTACT,'Accept':'text/html,text/plain'},
+    redirect:'manual',cf:{cacheTtl:86400,cacheEverything:true}
+  });
+  if (response.status>=300 && response.status<400) throw Error('Unexpected SEC redirect');
+  if (!response.ok) throw Error('SEC filing returned '+response.status);
+  const maxBytes=6_000_000;
+  const size=Number(response.headers.get('content-length'));
+  if (Number.isFinite(size) && size>maxBytes) throw Error('SEC filing too large');
+  const reader=response.body?.getReader();
+  if (!reader) throw Error('SEC filing body missing');
+  const chunks=[]; let bytes=0;
+  try {
+    while(true){
+      const {done,value}=await reader.read();
+      if(done) break;
+      bytes+=value.byteLength;
+      if(bytes>maxBytes) throw Error('SEC filing too large');
+      chunks.push(value);
+    }
+  } finally {
+    if(bytes>maxBytes) await reader.cancel();
+  }
+  const all=new Uint8Array(bytes);
+  let offset=0;
+  for(const chunk of chunks){all.set(chunk,offset);offset+=chunk.length;}
+  return new TextDecoder().decode(all);
+}
+
+/** Historic submissions live in additional free SEC JSON archives. */
+async function historicalSplitFilings(sub,cik,structuredEvidence) {
+  const listings=[secSplitFilingCandidates(sub,structuredEvidence)];
+  const files=(sub.filings?.files||[])
+    .filter(f=>/^\d{4}-\d{2}-\d{2}$/.test(f.filingTo||'') &&
+      f.filingTo >= '2005-01-01' &&
+      /^CIK\d{10}-submissions-\d{3}\.json$/.test(f.name||''))
+    .slice(0,25);
+  const failed=[];
+  for(let i=0;i<files.length;i+=3){
+    const batch=await Promise.all(files.slice(i,i+3).map(async item=>{
+      try {
+        const x=await secFetch(SEC+'/submissions/'+item.name);
+        return secSplitFilingCandidates({cik,filings:{recent:x}},structuredEvidence);
+      }catch(error){
+        failed.push({file:item.name,error:String(error?.message||error).slice(0,100)});
+        return [];
+      }
+    }));
+    listings.push(...batch);
+  }
+  const map=new Map();
+  for(const item of listings.flat()) if(!map.has(item.accession))map.set(item.accession,item);
+  return {candidates:[...map.values()],failedArchives:failed,archiveCount:files.length};
+}
+
 export default {
   async fetch(request) {
     if (request.method!=='GET') {
@@ -606,6 +669,10 @@ export default {
         },400);
       }
 
+      // Read-only split text inspection, constrained to SEC filing candidates.
+      // Fetches exactly one SEC document, never alters reported financial fields.
+      const url = new URL(request.url);
+      const inspectAccession = url.searchParams.get('inspectSplitAccession');
       const directory = await secFetch(
         'https://www.sec.gov/files/company_tickers.json'
       );
@@ -643,6 +710,145 @@ export default {
         );
       }
 
+      if (url.searchParams.get('basisAudit') === '1') {
+        const graph=buildSECShareBasisGraph(facts);
+        const shareMap=Object.fromEntries(Object.keys(TAGS).map(k=>[
+          k,fieldFacts(gaap,k)
+        ]));
+        const fiscalEnds=periods(shareMap);
+        const annual=buildAnnual(shareMap,fiscalEnds);
+        const quarterly=buildQuarterly(shareMap,fiscalEnds);
+        enrichQuarterDates(quarterly,sub);
+        coverShares(quarterly,facts);
+        const findFact=(row,metric,kind,forms)=>{
+          const list=(shareMap[metric]||[]).filter(r=>
+            r.end===row.fiscalPeriodEnd && forms.includes(r.form) &&
+            validDate(r.start) && (
+              kind==='annual'
+                ? dayCount(r.start,r.end)>=330 && dayCount(r.start,r.end)<=385
+                : dayCount(r.start,r.end)>=60 && dayCount(r.start,r.end)<=110
+            ));
+          const first=chooseRecord(shareMap[metric],row.fiscalPeriodEnd,kind,forms);
+          return [first,...list].filter(Boolean);
+        };
+        const adjustedAnnual=normalizeUsingSECShareGraph(
+          annual,graph,(row,metric)=>findFact(row,metric,'annual',['10-K','10-K/A'])
+        );
+        const adjustedQuarterly=normalizeUsingSECShareGraph(
+          quarterly,graph,(row,metric)=>findFact(row,metric,'quarter',
+            row.fiscalQuarter===4?['10-K','10-K/A']:['10-Q','10-Q/A'])
+        );
+        return json({
+          schemaVersion:VERSION,success:true,ticker,cik,
+          originalAnnualFinancials:annual,
+          originalQuarterlyFinancials:outputRows(quarterly,QUARTER_FIELDS),
+          shareBasisGraph:graph,
+          adjustedAnnualFinancials:adjustedAnnual,
+          adjustedQuarterlyFinancials:adjustedQuarterly,
+          note:'SEC-only cross-filing share-basis inference. Unconnected or contradictory per-share observations remain null in adjusted financials.'
+        });
+      }
+
+      const stockSplitAudit = splitAudit(facts);
+      const allFilingCandidates = secSplitFilingCandidates(sub,stockSplitAudit.candidates);
+      stockSplitAudit.filingCandidates = allFilingCandidates.slice(0,30);
+
+      if (url.searchParams.get('discoverSplits') === '1') {
+        const historical=await historicalSplitFilings(sub,Number(cik),stockSplitAudit.candidates);
+        const requestedLimit=Number(url.searchParams.get('maxDocuments')||30);
+        const maxDocuments=Number.isSafeInteger(requestedLimit) &&
+          requestedLimit>=1 && requestedLimit<=50 ? requestedLimit : 30;
+        const scan=await inspectSplitFilingBatch(historical.candidates,limitedSecDocument,
+          {maxDocuments});
+        const reportingRestatements=secRestatementEvidence(facts,scan.verifiedEvents);
+        const normalizedPreview=previewProvenPerShare(
+          facts,scan.verifiedEvents,new Date().toISOString().slice(0,10)
+        );
+        const targetDate=new Date().toISOString().slice(0,10);
+        const splitMap=Object.fromEntries(Object.keys(TAGS).map(k=>[
+          k,fieldFacts(gaap,k)
+        ]));
+        const splitEnds=periods(splitMap);
+        const originalAnnual=buildAnnual(splitMap,splitEnds);
+        const originalQuarter=buildQuarterly(splitMap,splitEnds);
+        enrichQuarterDates(originalQuarter,sub);
+        coverShares(originalQuarter,facts);
+        const candidateSources=(row,metric,kind,forms)=>{
+          const all=(splitMap[metric]||[]).filter(r=>
+            r.end===row.fiscalPeriodEnd && forms.includes(r.form) &&
+            validDate(r.start) && (
+              kind==='annual'
+                ? dayCount(r.start,r.end)>=330 && dayCount(r.start,r.end)<=385
+                : dayCount(r.start,r.end)>=60 && dayCount(r.start,r.end)<=110
+            )
+          );
+          const chosen=chooseRecord(splitMap[metric],row.fiscalPeriodEnd,kind,forms);
+          return [chosen,...all].filter(Boolean);
+        };
+        const auditedAnnual=auditedSplitRows(
+          originalAnnual,scan.verifiedEvents,targetDate,(row,metric)=>
+            candidateSources(row,metric,'annual',['10-K','10-K/A'])
+        );
+        const auditedQuarter=auditedSplitRows(
+          originalQuarter,scan.verifiedEvents,targetDate,(row,metric)=>
+            candidateSources(row,metric,'quarter',
+              row.fiscalQuarter===4 ? ['10-K','10-K/A'] : ['10-Q','10-Q/A'])
+        );
+        return json({
+          schemaVersion:VERSION,success:true,ticker,cik,
+          splitDiscovery:{...scan,reportingRestatements,normalizedPreview,
+            auditedAnnualFinancials:auditedAnnual,
+            auditedQuarterlyFinancials:auditedQuarter,
+            splitHistoryComplete:false,archiveCount:historical.archiveCount,
+            failedArchives:historical.failedArchives,
+            filingCandidatesFound:historical.candidates.length},
+          annualFinancials:null,quarterlyFinancials:null,
+          note:'Only explicit completed SEC disclosures become verified events. Preview is restricted to filings with retrospective per-share basis proof; historical split completeness cannot be guaranteed.'
+        });
+      }
+
+      if (inspectAccession !== null) {
+        const candidate = allFilingCandidates.find(f =>
+          f.accession === inspectAccession
+        );
+        if (!candidate?.filingDocumentUrl) {
+          return json({success:false,error:'SEC filing not available for inspection'},404);
+        }
+        const response = await fetch(candidate.filingDocumentUrl, {
+          headers:{'User-Agent':CONTACT,'Accept':'text/html, text/plain'},
+          redirect:'manual'
+        });
+        if (!response.ok) throw Error('SEC filing returned HTTP '+response.status);
+        const size = Number(response.headers.get('content-length'));
+        if (Number.isFinite(size) && size > 2_000_000) {
+          return json({success:false,error:'SEC document exceeds inspection size limit'},413);
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw Error('SEC document body unavailable');
+        const chunks = [];
+        let bytes = 0;
+        while (true) {
+          const {done,value} = await reader.read();
+          if (done) break;
+          bytes += value.byteLength;
+          if (bytes > 2_000_000) {
+            await reader.cancel();
+            return json({success:false,error:'SEC document exceeds inspection size limit'},413);
+          }
+          chunks.push(value);
+        }
+        const all = new Uint8Array(bytes);
+        let offset = 0;
+        for (const chunk of chunks) { all.set(chunk,offset); offset += chunk.length; }
+        const statements = detectSplitStatements(new TextDecoder().decode(all),candidate.accession)
+          .map(s => ({...s,dateCandidates:splitDateCandidates(s)}));
+        return json({
+          success:true,ticker,cik,accession:candidate.accession,
+          filingDocumentUrl:candidate.filingDocumentUrl,
+          statements,verifiedEvents:[],normalizationApplied:false
+        });
+      }
+
       const map = Object.fromEntries(
         Object.keys(TAGS).map(k=>[
           k,fieldFacts(gaap,k)
@@ -661,6 +867,54 @@ export default {
 
       validateOutput(annualFinancials,quarterlyFinancials);
 
+      // Automatic normalization is SEC-only. Changed split bases are applied
+      // to annual history where graph evidence is consistent. Unconnected
+      // historical EPS becomes null rather than an inaccurate comparison.
+      // Quarterlies only switch when the entire set is provably connected,
+      // preserving recent reported EPS used in the live P/E calculation.
+      const basisGraph=buildSECShareBasisGraph(facts);
+      const sourceCandidates=(row,metric,kind,forms)=>{
+        const matching=(map[metric]||[]).filter(r=>
+          r.end===row.fiscalPeriodEnd && forms.includes(r.form) &&
+          validDate(r.start) && (
+            kind==='annual'
+              ? dayCount(r.start,r.end)>=330 && dayCount(r.start,r.end)<=385
+              : dayCount(r.start,r.end)>=60 && dayCount(r.start,r.end)<=110
+          ));
+        return [chooseRecord(map[metric],row.fiscalPeriodEnd,kind,forms),
+          ...matching].filter(Boolean);
+      };
+      const annualNormalized=normalizeUsingSECShareGraph(
+        annualFinancials,basisGraph,(row,metric)=>
+          sourceCandidates(row,metric,'annual',['10-K','10-K/A'])
+      );
+      const quarterlyNormalized=normalizeUsingSECShareGraph(
+        quarterlyFinancials,basisGraph,(row,metric)=>
+          sourceCandidates(row,metric,'quarter',
+            row.fiscalQuarter===4 ? ['10-K','10-K/A'] : ['10-Q','10-Q/A'])
+      );
+      const splitDetected=basisGraph.changedBasisEdges.length>0;
+      const consistent=basisGraph.conflicts.length===0;
+      const autoAnnual=splitDetected && consistent;
+      const autoQuarterly=autoAnnual && quarterlyNormalized.complete;
+      const finalAnnual=autoAnnual?annualNormalized.rows:annualFinancials;
+      const finalQuarterly=autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials;
+      stockSplitAudit.companyFactsNormalization={
+        method:basisGraph.method,
+        anchorAccession:basisGraph.anchorAccession,
+        anchorFiled:basisGraph.anchorFiled,
+        changedBasisEdges:basisGraph.changedBasisEdges.length,
+        conflictCount:basisGraph.conflicts.length,
+        annualApplied:autoAnnual,
+        quarterlyApplied:autoQuarterly,
+        annualUnverified:annualNormalized.issues.length,
+        quarterlyUnverified:quarterlyNormalized.issues.length,
+        limitation:'SEC-only inferred historical share basis; may not capture a split after the most recent financial filing.'
+      };
+      if(splitDetected)stockSplitAudit.status=autoAnnual
+        ? 'automatically-adjusted-from-SEC-evidence'
+        : 'SEC-split-evidence-conflicting';
+
       const index = (sub.tickers||[]).findIndex(t =>
         String(t).toUpperCase()===ticker
       );
@@ -672,8 +926,9 @@ export default {
         cik,
         companyName:facts.entityName||company.title||ticker,
         exchange:index>=0?(sub.exchanges?.[index]||''):'',
-        annualFinancials,
-        quarterlyFinancials,
+        annualFinancials:finalAnnual,
+        quarterlyFinancials:finalQuarterly,
+        stockSplitAudit,
         coverage:{
           annualYears:annualFinancials.length,
           reportedQuarters:quarterlyFinancials.length,
@@ -684,7 +939,7 @@ export default {
               quarterlyFinancials[i].fiscalQuarter===
               r.fiscalYear*4+r.fiscalQuarter+1
             ),
-          note:'Only reported SEC facts are imported; unavailable metrics remain blank.'
+          note:'SEC reported facts; historical diluted EPS/shares automatically normalized only where overlapping SEC filing evidence supports the share basis. Unverifiable earlier EPS may be blank.'
         },
         retrievedAt:new Date().toISOString(),
         provenance:

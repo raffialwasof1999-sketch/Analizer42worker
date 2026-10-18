@@ -1,0 +1,486 @@
+/**
+ * SEC-only split evidence collector.
+ * The GAAP ratio concept describes a split but is not guaranteed for all issuers.
+ * This XBRL concept is duration-based: its period end is NOT an event date.
+ * Treat the XBRL fact period end as an evidence date, NOT a confirmed trading effective date.
+ * Never apply a split factor to historical EPS without establishing its reporting basis.
+ */
+export function secSplitEvidence(companyFacts) {
+  const gaap = companyFacts?.facts?.['us-gaap'] || {};
+  const concepts = [
+    'StockholdersEquityNoteStockSplitConversionRatio1',
+    'StockholdersEquityNoteStockSplitConversionRatio'
+  ];
+  const evidence = [];
+  for (const concept of concepts) {
+    const units = gaap[concept]?.units || {};
+    for (const [unit, records] of Object.entries(units)) {
+      if (unit !== 'pure' || !Array.isArray(records)) continue;
+      for (const r of records) {
+        if (typeof r.val !== 'number' || !Number.isFinite(r.val) ||
+            r.val <= 0 || r.val === 1 ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(r.end || '') ||
+            !['10-K','10-Q','10-K/A','10-Q/A'].includes(r.form)) continue;
+        evidence.push({
+          evidenceDate: r.end,
+          periodStart: r.start || null,
+          sharesAfterPerBefore: r.val,
+          concept,
+          accession: r.accn || null,
+          filed: r.filed || null,
+          source: 'SEC CompanyFacts',
+          status: 'unverified-effective-date'
+        });
+      }
+    }
+  }
+  // The same underlying split may be repeated across many later filings.
+  // Deduplication is by concept + reported fact date + ratio, NOT filing date.
+  const dedup = new Map();
+  for (const e of evidence) {
+    const key = [e.evidenceDate, e.sharesAfterPerBefore].join('|');
+    const prev = dedup.get(key);
+    if (!prev || (e.filed || '') < (prev.filed || '')) dedup.set(key, e);
+  }
+  return [...dedup.values()].sort((a,b)=>a.evidenceDate.localeCompare(b.evidenceDate));
+}
+
+export function splitAudit(companyFacts) {
+  const candidates = secSplitEvidence(companyFacts);
+  return {
+    candidates,
+    verifiedEvents: [],
+    normalizationApplied: false,
+    status: candidates.length ? 'requires-filing-verification' : 'no-structured-split-evidence',
+    note: 'SEC XBRL split ratios are incomplete and evidence dates are not necessarily execution dates. Reported EPS and share counts remain unchanged until split timing and per-filing restatement basis are verified.'
+  };
+}
+
+/**
+ * Convert an independently verified per-share observation to a target basis.
+ * All inputs MUST have evidence from filings: split effective dates, source
+ * observation's restatement cutoff, and desired target date. Guessing a cutoff
+ * from the period end or SEC filing date can double-adjust EPS.
+ *
+ * The report basis cutoff represents the latest effective split already reflected
+ * in the number, not simply the date on which the report was filed.
+ *
+ * Shares multiply by the forward split factor; EPS and per-share dividends divide.
+ * Dollar totals (net income, revenue, etc.) must NEVER be transformed here.
+ */
+export function normalizeVerifiedPerShare({
+  value, metric, basisThrough, targetDate, verifiedEvents
+}) {
+  if (!['dilutedEPS','basicEPS','dilutedShares','basicShares','dividendsPerShare']
+      .includes(metric)) throw Error('Unsupported per-share metric');
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw Error('Numeric reported value required');
+  }
+  const valid = d => typeof d === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(d) &&
+    !Number.isNaN(Date.parse(d + 'T00:00:00Z'));
+  if (!valid(basisThrough) || !valid(targetDate) || targetDate < basisThrough) {
+    throw Error('Verified basisThrough and later targetDate required');
+  }
+  if (!Array.isArray(verifiedEvents)) throw Error('Verified event array required');
+  let factor = 1;
+  const seen = new Set();
+  for (const event of verifiedEvents) {
+    if (!valid(event.effectiveDate) ||
+        !Number.isFinite(event.sharesAfterPerBefore) ||
+        event.sharesAfterPerBefore <= 0 ||
+        event.verified !== true ||
+        !event.secAccession) throw Error('Unverified split event');
+    const key = event.effectiveDate + ':' + event.sharesAfterPerBefore;
+    if (seen.has(key)) throw Error('Repeated split event');
+    seen.add(key);
+    if (event.effectiveDate > basisThrough && event.effectiveDate <= targetDate) {
+      factor *= event.sharesAfterPerBefore;
+    }
+  }
+  if (!Number.isFinite(factor) || factor <= 0) throw Error('Invalid cumulative factor');
+  return {
+    original: value,
+    adjusted: metric.endsWith('Shares') ? value * factor : value / factor,
+    cumulativeFactor: factor,
+    metric,
+    basisThrough,
+    targetDate,
+    verified: true
+  };
+}
+
+/**
+ * SEC submissions contain filing dates and accession numbers, NOT split dates.
+ * Return auditable filing candidates for subsequent exhibit/filing review.
+ * 8-K Item 5.03 may describe amended share capitalization, but isn't itself
+ * proof of a split. 10-K/10-Q disclosure can also identify split events.
+ */
+export function secSplitFilingCandidates(submissions, evidence = []) {
+  const recent = submissions?.filings?.recent || {};
+  const found = [];
+  const cik = Number(submissions?.cik);
+  const validCik = Number.isSafeInteger(cik) && cik > 0;
+  const count = Array.isArray(recent.form) ? recent.form.length : 0;
+  for (let i = 0; i < count; i++) {
+    const form = recent.form[i];
+    const accession = recent.accessionNumber?.[i];
+    const filed = recent.filingDate?.[i];
+    if (!['8-K','8-K/A','10-K','10-K/A','10-Q','10-Q/A'].includes(form) ||
+        typeof accession !== 'string' ||
+        !/^\d{10}-\d{2}-\d{6}$/.test(accession) ||
+        typeof filed !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(filed)) continue;
+    const sameFilingRatioFacts = evidence.filter(e => e.accession === accession);
+    const accessionCompact = accession.replaceAll('-', '');
+    const primaryDocument = recent.primaryDocument?.[i];
+    const safePrimary = typeof primaryDocument === 'string' &&
+      /^[A-Za-z0-9_.-]+\.(?:htm|html|txt)$/i.test(primaryDocument);
+    const filingDocumentUrl = validCik && safePrimary
+      ? `https://www.sec.gov/Archives/edgar/data/${cik}/${accessionCompact}/${primaryDocument}`
+      : null;
+    const filingIndexUrl = validCik
+      ? `https://www.sec.gov/Archives/edgar/data/${cik}/${accessionCompact}/`
+      : null;
+    // All eligible filings are candidates, not verified split announcements.
+    found.push({
+      accession, filed, form, filingIndexUrl, filingDocumentUrl,
+      reportDate: recent.reportDate?.[i] || null,
+      items: recent.items?.[i] || '',
+      splitRatioFacts: sameFilingRatioFacts.map(e => ({
+        sharesAfterPerBefore: e.sharesAfterPerBefore,
+        periodStart: e.periodStart,
+        evidenceDate: e.evidenceDate
+      })),
+      verifiedSplit: false
+    });
+  }
+  // Prioritize filings with structured split evidence; remaining documents
+  // are discovery candidates only and MUST NOT be counted as split events.
+  return found.sort((a,b) =>
+    Number(b.splitRatioFacts.length > 0) - Number(a.splitRatioFacts.length > 0) ||
+    b.filed.localeCompare(a.filed)
+  );
+}
+
+/**
+ * Extract reviewable split statements from SEC filing text.
+ * This is a discovery aid, not an event verifier: a filing may describe
+ * a proposed, historical, rescinded, or hypothetical split.
+ * Never send these candidates directly to normalizeVerifiedPerShare.
+ */
+export function detectSplitStatements(text, accession) {
+  if (typeof text !== 'string' || text.length > 2_000_000) {
+    throw Error('SEC filing text must be a bounded string');
+  }
+  if (typeof accession !== 'string' ||
+      !/^\d{10}-\d{2}-\d{6}$/.test(accession)) {
+    throw Error('Valid SEC accession required');
+  }
+  const normalized = text.replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/\s+/g, ' ');
+  const findings = [];
+  const patterns = [
+    /\b(\d{1,3})\s*(?:-\s*for\s*-|for\s*)\s*(\d{1,3})\s+(?:forward\s+|reverse\s+)?stock split\b/gi,
+    /\b(?:forward|reverse)\s+stock split\s+(?:of|at|on a basis of)\s+(\d{1,3})\s*(?:-\s*for\s*-|for\s*)\s*(\d{1,3})\b/gi
+  ];
+  for (const pattern of patterns) {
+    for (const m of normalized.matchAll(pattern)) {
+      const after = Number(m[1]), before = Number(m[2]);
+      if (!(after > 0 && before > 0) || after === before) continue;
+      const context = normalized.slice(Math.max(0,m.index-180),
+        Math.min(normalized.length,m.index+m[0].length+180));
+      const key = [m.index,after,before].join(':');
+      findings.push({
+        accession,
+        sharesAfterPerBefore: after/before,
+        ratioText: m[0],
+        context,
+        textOffset: m.index,
+        verified: false,
+        effectiveDate: null,
+        status: 'filing-text-review-needed',
+        key
+      });
+    }
+  }
+  return findings.sort((a,b)=>a.textOffset-b.textOffset);
+}
+
+/**
+ * Identify explicit execution-date phrases near a split statement.
+ * Returns possible dates only. Boilerplate, comparisons and proposals can
+ * contain dates: human/independent filing corroboration is still required.
+ */
+export function splitDateCandidates(statement) {
+  if (!statement || typeof statement.context !== 'string') return [];
+  const text = statement.context;
+  const months = {
+    january:1,february:2,march:3,april:4,may:5,june:6,
+    july:7,august:8,september:9,october:10,november:11,december:12
+  };
+  const found = [];
+  const pattern = /\b(?:effective|effected|became effective|began trading|commenced trading|trading began|split-adjusted trading began|on|as of)\s+(?:on\s+)?(?:the\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(20\d{2})\b/gi;
+  for (const m of text.matchAll(pattern)) {
+    const year = Number(m[3]), month = months[m[1].toLowerCase()], day = Number(m[2]);
+    const date = new Date(Date.UTC(year,month-1,day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month-1 ||
+        date.getUTCDate() !== day) continue;
+    found.push({date:date.toISOString().slice(0,10),
+      phrase:m[0],sourceAccession:statement.accession,
+      verified:false,status:'review-required'});
+  }
+  return [...new Map(found.map(x=>[x.date,x])).values()];
+}
+
+/**
+ * Classify whether a financial observation can be normalized.
+ * SEC CompanyFacts does not explicitly annotate the split basis of each EPS
+ * observation. Filing date alone is insufficient: a post-split filing can
+ * include retroactively restated earlier EPS.
+ */
+export function assessSplitBasis(observation, verifiedEvents) {
+  if (!observation || !Array.isArray(verifiedEvents)) {
+    throw Error('Observation and split events are required');
+  }
+  const relevant = verifiedEvents.filter(e =>
+    e?.verified === true && typeof e.effectiveDate === 'string' &&
+    typeof observation.end === 'string' && e.effectiveDate > observation.end
+  );
+  const explicitlyVerifiedBasis =
+    observation.basisVerified === true &&
+    typeof observation.basisThrough === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(observation.basisThrough) &&
+    typeof observation.basisSecAccession === 'string' &&
+    /^\d{10}-\d{2}-\d{6}$/.test(observation.basisSecAccession);
+  return {
+    eligible: explicitlyVerifiedBasis,
+    status: explicitlyVerifiedBasis ? 'basis-proven' : 'basis-unknown',
+    potentialLaterSplits: relevant.map(e=>({
+      effectiveDate:e.effectiveDate,
+      sharesAfterPerBefore:e.sharesAfterPerBefore
+    })),
+    reason: explicitlyVerifiedBasis
+      ? 'Observation basis has separately verified SEC provenance'
+      : 'SEC facts do not specify which later split restatements this value already incorporates'
+  };
+}
+
+/**
+ * The sole permitted entry point for changing a reported per-share number.
+ * Provenance is checked here, not merely reported as advisory metadata.
+ * Callers must provide an independently verified split history AND basis proof.
+ */
+export function normalizeProvenObservation(observation, targetDate, verifiedEvents) {
+  if (!observation || typeof observation !== 'object') {
+    throw Error('SEC observation required');
+  }
+  const basis = assessSplitBasis(observation, verifiedEvents);
+  if (!basis.eligible) throw Error('Cannot adjust EPS: SEC reporting basis unverified');
+  if (!observation.accn || observation.accn !== observation.basisSecAccession) {
+    throw Error('Observation and basis proof refer to different SEC filings');
+  }
+  if (!['dilutedEPS','basicEPS','dilutedShares','basicShares','dividendsPerShare']
+    .includes(observation.metric)) throw Error('Unsupported per-share metric');
+  return normalizeVerifiedPerShare({
+    value: observation.val,
+    metric: observation.metric,
+    basisThrough: observation.basisThrough,
+    targetDate,
+    verifiedEvents
+  });
+}
+
+/**
+ * Compare two SEC XBRL observations for the SAME period, one filed before
+ * and the other after a verified split. A matching reciprocal EPS change
+ * supports (but does not alone prove) a restatement of the earlier period.
+ * Returns evidence only, never a verified basis cutoff.
+ */
+export function compareRestatedPerShare(before, after, split) {
+  const result = {status:'inconclusive', verified:false, observedFactor:null};
+  if (!before || !after || !split || split.verified !== true ||
+      !Number.isFinite(split.sharesAfterPerBefore) ||
+      split.sharesAfterPerBefore <= 0 ||
+      before.start !== after.start || before.end !== after.end ||
+      (before.unit && after.unit && before.unit !== after.unit) ||
+      Math.sign(before.val) !== Math.sign(after.val) ||
+      before.metric !== after.metric ||
+      !['dilutedEPS','basicEPS','dilutedShares','basicShares'].includes(before.metric) ||
+      !Number.isFinite(before.val) || !Number.isFinite(after.val) ||
+      !before.accn || !after.accn || before.accn === after.accn ||
+      typeof before.filed !== 'string' || typeof after.filed !== 'string' ||
+      typeof split.effectiveDate !== 'string' ||
+      before.filed >= split.effectiveDate ||
+      after.filed < split.effectiveDate ||
+      before.val === 0 || after.val === 0) return result;
+  const eps = before.metric.endsWith('EPS');
+  const observedFactor = eps ? before.val / after.val : after.val / before.val;
+  const expected = split.sharesAfterPerBefore;
+  const error = Math.abs(observedFactor-expected) / expected;
+  return {
+    status:error <= 0.02 ? 'consistent-with-restatement' : 'not-consistent',
+    verified:false,observedFactor,
+    expectedFactor:expected,
+    beforeAccession:before.accn,
+    afterAccession:after.accn,
+    periodEnd:before.end
+  };
+}
+
+/**
+ * Compare genuinely reported SEC CompanyFacts records for a period across
+ * filing dates. These results are evidence, not authorization to adjust EPS.
+ * Split events must already have separately verified effective dates.
+ */
+export function secRestatementEvidence(companyFacts, verifiedEvents, limit=100) {
+  const gaap = companyFacts?.facts?.['us-gaap'] || {};
+  const tags = [
+    ['EarningsPerShareDiluted','dilutedEPS','USD/shares'],
+    ['EarningsPerShareBasic','basicEPS','USD/shares'],
+    ['WeightedAverageNumberOfDilutedSharesOutstanding','dilutedShares','shares'],
+    ['WeightedAverageNumberOfSharesOutstandingBasic','basicShares','shares']
+  ];
+  const results = [];
+  if (!Array.isArray(verifiedEvents)) return results;
+  for (const [tag,metric,unit] of tags) {
+    const observations = (gaap[tag]?.units?.[unit] || [])
+      .filter(r => r && typeof r.start === 'string' &&
+        typeof r.end === 'string' && typeof r.filed === 'string' &&
+        typeof r.accn === 'string' && Number.isFinite(r.val) &&
+        ['10-K','10-K/A','10-Q','10-Q/A'].includes(r.form))
+      .map(r => ({...r,metric,unit}));
+    const groups = new Map();
+    for (const r of observations) {
+      const key = [r.start,r.end].join('|');
+      if (!groups.has(key)) groups.set(key,[]);
+      groups.get(key).push(r);
+    }
+    for (const split of verifiedEvents) {
+      if (split?.verified !== true || typeof split.effectiveDate !== 'string' ||
+          !Number.isFinite(split.sharesAfterPerBefore) ||
+          split.sharesAfterPerBefore <= 0) continue;
+      for (const group of groups.values()) {
+        const before = group.filter(r => r.filed < split.effectiveDate)
+          .sort((a,b)=>b.filed.localeCompare(a.filed))[0];
+        const after = group.filter(r => r.filed >= split.effectiveDate)
+          .sort((a,b)=>a.filed.localeCompare(b.filed))[0];
+        if (!before || !after) continue;
+        const comparison = compareRestatedPerShare(before,after,split);
+        if (comparison.status !== 'inconclusive') {
+          results.push({...comparison,metric,splitDate:split.effectiveDate,
+            beforeFiled:before.filed,afterFiled:after.filed});
+        }
+      }
+    }
+  }
+  return results.slice(0,Math.max(0,Math.min(limit,500)));
+}
+
+/**
+ * Preview adjustments ONLY for SEC filings explicitly disclosing retrospective
+ * per-share split restatement. Never mutate raw SEC financial rows.
+ * A preview is not a claim that all historical splits have been discovered.
+ */
+export function previewProvenPerShare(companyFacts,verifiedEvents,targetDate) {
+  if(!Array.isArray(verifiedEvents))throw Error('Verified split events required');
+  const proofs=new Map();
+  for(const event of verifiedEvents){
+    if(event?.verified!==true || !Array.isArray(event.basisProofAccessions) ||
+       !/^\d{4}-\d{2}-\d{2}$/.test(event.effectiveDate||''))continue;
+    for(const accn of event.basisProofAccessions){
+      if(!/^\d{10}-\d{2}-\d{6}$/.test(accn))continue;
+      const old=proofs.get(accn);
+      if(!old || event.effectiveDate>old)proofs.set(accn,event.effectiveDate);
+    }
+  }
+  const gaap=companyFacts?.facts?.['us-gaap']||{};
+  const concepts=[
+    ['EarningsPerShareDiluted','dilutedEPS','USD/shares'],
+    ['EarningsPerShareBasic','basicEPS','USD/shares'],
+    ['WeightedAverageNumberOfDilutedSharesOutstanding','dilutedShares','shares'],
+    ['WeightedAverageNumberOfSharesOutstandingBasic','basicShares','shares']
+  ];
+  const rows=[];
+  for(const [tag,metric,unit] of concepts){
+    for(const fact of gaap[tag]?.units?.[unit]||[]){
+      const basisThrough=proofs.get(fact.accn);
+      if(!basisThrough || !fact.start || !fact.end || !Number.isFinite(fact.val))continue;
+      if(!['10-K','10-Q','10-K/A','10-Q/A'].includes(fact.form))continue;
+      const observation={...fact,metric,basisVerified:true,basisThrough,
+        basisSecAccession:fact.accn};
+      try{
+        const adjusted=normalizeProvenObservation(observation,targetDate,verifiedEvents);
+        rows.push({
+          metric,start:fact.start,end:fact.end,sourceAccession:fact.accn,
+          filed:fact.filed,reported:fact.val,normalized:adjusted.adjusted,
+          factor:adjusted.cumulativeFactor,basisThrough,
+          status:'proven-filing-basis-preview'
+        });
+      }catch{
+        // Missing or inconsistent proof: omit rather than invent numbers.
+      }
+    }
+  }
+  return rows.slice(0,1000);
+}
+
+/**
+ * Produce a separate audited result, never overwrite SEC reported financials.
+ * Unknown pre-split EPS/share bases are represented as null in this STRICT
+ * result when an identified later split may affect their share basis.
+ */
+export function auditedSplitRows(rows,verifiedEvents,targetDate,resolveSource) {
+  if(!Array.isArray(rows) || !Array.isArray(verifiedEvents) ||
+     typeof resolveSource!=='function')throw Error('Invalid split audit inputs');
+  const proof=new Map();
+  for(const e of verifiedEvents){
+    if(e?.verified!==true || !Array.isArray(e.basisProofAccessions))continue;
+    for(const accn of e.basisProofAccessions){
+      const old=proof.get(accn);
+      if(!old || old < e.effectiveDate)proof.set(accn,e.effectiveDate);
+    }
+  }
+  const issues=[],adjustments=[];
+  const transformed=rows.map(row=>{
+    const out={...row};
+    for(const metric of ['dilutedEPS','dilutedShares']){
+      if(!Number.isFinite(row[metric]))continue;
+      const candidates=resolveSource(row,metric);
+      const choices=Array.isArray(candidates)?candidates:[candidates];
+      const sameValue=r=>r?.accn && Number.isFinite(r.val) &&
+        Math.abs(r.val-row[metric])<=Math.max(1e-9,Math.abs(row[metric])*1e-7);
+      // A later filing can repeat the same SEC comparable without repeating
+      // its stock-split footnote. Prefer the matching original proof filing.
+      const src=choices.find(r=>sameValue(r) && proof.has(r.accn)) ||
+        choices.find(sameValue) || choices[0];
+      const basisThrough=sameValue(src) ? proof.get(src.accn) : null;
+      if(basisThrough){
+        try{
+          const adjusted=normalizeProvenObservation({
+            ...src,metric,basisVerified:true,basisThrough,
+            basisSecAccession:src.accn
+          },targetDate,verifiedEvents);
+          out[metric]=adjusted.adjusted;
+          adjustments.push({periodEnd:row.fiscalPeriodEnd,metric,
+            sourceAccession:src.accn,original:row[metric],
+            adjusted:out[metric],factor:adjusted.cumulativeFactor,
+            basisThrough,status:'basis-verified'});
+          continue;
+        }catch{/* Treat as unresolved below. */}
+      }
+      if(verifiedEvents.some(e=>e.verified===true &&
+          e.effectiveDate > row.fiscalPeriodEnd &&
+          e.effectiveDate<=targetDate)){
+        out[metric]=null;
+        issues.push({periodEnd:row.fiscalPeriodEnd,metric,
+          sourceAccession:src?.accn||null,status:'unknown-split-basis'});
+      }
+    }
+    return out;
+  });
+  return {rows:transformed,adjustments,issues,
+    complete:issues.length===0,
+    note:'Audited split normalization only. Missing share-basis proof leaves affected metrics blank; other values are not independently verified as split-complete.'};
+}
