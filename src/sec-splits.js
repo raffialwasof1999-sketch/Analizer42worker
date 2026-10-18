@@ -425,3 +425,58 @@ export function previewProvenPerShare(companyFacts,verifiedEvents,targetDate) {
   }
   return rows.slice(0,1000);
 }
+
+/**
+ * Produce a separate audited result, never overwrite SEC reported financials.
+ * Unknown pre-split EPS/share bases are represented as null in this STRICT
+ * result when an identified later split may affect their share basis.
+ */
+export function auditedSplitRows(rows,verifiedEvents,targetDate,resolveSource) {
+  if(!Array.isArray(rows) || !Array.isArray(verifiedEvents) ||
+     typeof resolveSource!=='function')throw Error('Invalid split audit inputs');
+  const proof=new Map();
+  for(const e of verifiedEvents){
+    if(e?.verified!==true || !Array.isArray(e.basisProofAccessions))continue;
+    for(const accn of e.basisProofAccessions){
+      const old=proof.get(accn);
+      if(!old || old < e.effectiveDate)proof.set(accn,e.effectiveDate);
+    }
+  }
+  const issues=[],adjustments=[];
+  const transformed=rows.map(row=>{
+    const out={...row};
+    for(const metric of ['dilutedEPS','dilutedShares']){
+      if(!Number.isFinite(row[metric]))continue;
+      const src=resolveSource(row,metric);
+      const original=src?.val;
+      const sameFact=src?.accn && Number.isFinite(original) &&
+        Math.abs(original-row[metric])<=Math.max(1e-9,Math.abs(row[metric])*1e-7);
+      const basisThrough=sameFact ? proof.get(src.accn) : null;
+      if(basisThrough){
+        try{
+          const adjusted=normalizeProvenObservation({
+            ...src,metric,basisVerified:true,basisThrough,
+            basisSecAccession:src.accn
+          },targetDate,verifiedEvents);
+          out[metric]=adjusted.adjusted;
+          adjustments.push({periodEnd:row.fiscalPeriodEnd,metric,
+            sourceAccession:src.accn,original:row[metric],
+            adjusted:out[metric],factor:adjusted.cumulativeFactor,
+            basisThrough,status:'basis-verified'});
+          continue;
+        }catch{/* Treat as unresolved below. */}
+      }
+      if(verifiedEvents.some(e=>e.verified===true &&
+          e.effectiveDate > row.fiscalPeriodEnd &&
+          e.effectiveDate<=targetDate)){
+        out[metric]=null;
+        issues.push({periodEnd:row.fiscalPeriodEnd,metric,
+          sourceAccession:src?.accn||null,status:'unknown-split-basis'});
+      }
+    }
+    return out;
+  });
+  return {rows:transformed,adjustments,issues,
+    complete:issues.length===0,
+    note:'Audited split normalization only. Missing share-basis proof leaves affected metrics blank; other values are not independently verified as split-complete.'};
+}
