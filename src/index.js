@@ -1,4 +1,4 @@
-import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare } from './sec-splits.js';
+import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 
 /**
@@ -720,9 +720,29 @@ export default {
         const normalizedPreview=previewProvenPerShare(
           facts,scan.verifiedEvents,new Date().toISOString().slice(0,10)
         );
+        const targetDate=new Date().toISOString().slice(0,10);
+        const splitMap=Object.fromEntries(Object.keys(TAGS).map(k=>[
+          k,fieldFacts(gaap,k)
+        ]));
+        const splitEnds=periods(splitMap);
+        const originalAnnual=buildAnnual(splitMap,splitEnds);
+        const originalQuarter=buildQuarterly(splitMap,splitEnds);
+        enrichQuarterDates(originalQuarter,sub);
+        coverShares(originalQuarter,facts);
+        const auditedAnnual=auditedSplitRows(
+          originalAnnual,scan.verifiedEvents,targetDate,(row,metric)=>
+            chooseRecord(splitMap[metric],row.fiscalPeriodEnd,'annual',['10-K','10-K/A'])
+        );
+        const auditedQuarter=auditedSplitRows(
+          originalQuarter,scan.verifiedEvents,targetDate,(row,metric)=>
+            chooseRecord(splitMap[metric],row.fiscalPeriodEnd,'quarter',
+              row.fiscalQuarter===4 ? ['10-K','10-K/A'] : ['10-Q','10-Q/A'])
+        );
         return json({
           schemaVersion:VERSION,success:true,ticker,cik,
           splitDiscovery:{...scan,reportingRestatements,normalizedPreview,
+            auditedAnnualFinancials:auditedAnnual,
+            auditedQuarterlyFinancials:auditedQuarter,
             splitHistoryComplete:false,archiveCount:historical.archiveCount,
             failedArchives:historical.failedArchives,
             filingCandidatesFound:historical.candidates.length},
