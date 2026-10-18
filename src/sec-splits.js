@@ -447,11 +447,15 @@ export function auditedSplitRows(rows,verifiedEvents,targetDate,resolveSource) {
     const out={...row};
     for(const metric of ['dilutedEPS','dilutedShares']){
       if(!Number.isFinite(row[metric]))continue;
-      const src=resolveSource(row,metric);
-      const original=src?.val;
-      const sameFact=src?.accn && Number.isFinite(original) &&
-        Math.abs(original-row[metric])<=Math.max(1e-9,Math.abs(row[metric])*1e-7);
-      const basisThrough=sameFact ? proof.get(src.accn) : null;
+      const candidates=resolveSource(row,metric);
+      const choices=Array.isArray(candidates)?candidates:[candidates];
+      const sameValue=r=>r?.accn && Number.isFinite(r.val) &&
+        Math.abs(r.val-row[metric])<=Math.max(1e-9,Math.abs(row[metric])*1e-7);
+      // A later filing can repeat the same SEC comparable without repeating
+      // its stock-split footnote. Prefer the matching original proof filing.
+      const src=choices.find(r=>sameValue(r) && proof.has(r.accn)) ||
+        choices.find(sameValue) || choices[0];
+      const basisThrough=sameValue(src) ? proof.get(src.accn) : null;
       if(basisThrough){
         try{
           const adjusted=normalizeProvenObservation({
