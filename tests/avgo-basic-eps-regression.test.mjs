@@ -93,3 +93,20 @@ test('Q4 estimate refuses annual basic EPS and basic shares from separate filing
   const onlyUnmatched=[{...x.annualEPS[0],accn:'other'}];
   assert.equal(deriveQ4BasicEPS(x.quarters,x.years,x.shares,onlyUnmatched).estimatedCount,0);
 });
+
+test('latest interim FY can inherit matching verified prior annual share basis',()=>{
+  const latest={fiscalYear:2026,fiscalQuarter:1,fiscalPeriodEnd:'2026-02-01',
+    basicEPS:2.75,netIncome:13.1e9,basicShares:4.76e9};
+  const prior={fiscalYear:2025,fiscalPeriodEnd:'2025-11-02',
+    netIncome:23.126e9,basicEPS:4.91};
+  const annualEPS=[{accn:newest,start:'2024-11-04',end:'2025-11-02',
+    form:'10-K',val:4.91}];
+  const annualShares=[{accn:newest,start:'2024-11-04',end:'2025-11-02',
+    form:'10-K',val:4.71e9}];
+  const proof=findMatchingAnnualBasicEPSBasis(latest,prior,annualEPS,
+    annualShares,{shareFactors:{[newest]:1}});
+  assert.equal(proof?.annualAccession,newest);
+  const out=normalizeHistoricalBasicEPS([latest],graph,
+    ()=>[{accn:'unconnected-2026-quarter',val:2.75}],[],()=>proof);
+  assert.equal(out.rows[0].basicEPS,2.75);
+});
