@@ -2,6 +2,7 @@ import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateC
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
 import { deriveQ4BasicEPS } from './q4-basic-eps.js';
+import { normalizeHistoricalBasicEPS } from './basic-eps-share-basis.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -904,7 +905,18 @@ export default {
       const autoAnnual=splitDetected && consistent;
       const autoQuarterly=autoAnnual && quarterlyNormalized.complete;
       const finalAnnual=autoAnnual?annualNormalized.rows:annualFinancials;
-      const finalQuarterly=autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials;
+      const basicHistorical=normalizeHistoricalBasicEPS(
+        quarterlyFinancials,basisGraph,
+        row=>sourceCandidates(row,'basicEPS','quarter',
+          row.fiscalQuarter===4?['10-K','10-K/A']:['10-Q','10-Q/A']),
+        q4BasicEPSEvidence.findings
+      );
+      const finalQuarterly=(autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials)
+        .map((row,i)=>({...row,basicEPS:basicHistorical.rows[i].basicEPS}));
+      stockSplitAudit.basicEPSHistoricalNormalization={
+        method:basicHistorical.method,adjustedCount:basicHistorical.adjustedCount,
+        unavailableCount:basicHistorical.unavailableCount
+      };
       stockSplitAudit.quarterFourBasicEPS=q4BasicEPSEvidence;
       stockSplitAudit.companyFactsNormalization={
         method:basisGraph.method,
