@@ -913,6 +913,26 @@ export default {
       );
       const finalQuarterly=(autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials)
         .map((row,i)=>({...row,basicEPS:basicHistorical.rows[i].basicEPS}));
+      // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
+      // Script writes only the older 31/26 columns, so basic EPS needs an
+      // independent column feed. 'NA' preserves row positions in sparse data.
+      const basicCsv = url.searchParams.get('basicEpsCsv');
+      if (basicCsv !== null) {
+        if (!['annual','quarterly'].includes(basicCsv)) {
+          return json({success:false,error:'Choose basicEpsCsv=annual or quarterly'},400);
+        }
+        const records = basicCsv==='annual'?finalAnnual:finalQuarterly;
+        const csv=records.map(r=>n(r.basicEPS)!==null
+          ? String(r.basicEPS)
+          : 'NA').join('\\n')+'\\n';
+        return new Response(csv,{
+          headers:{
+            'content-type':'text/csv; charset=utf-8',
+            'access-control-allow-origin':'*',
+            'cache-control':'public, max-age=900'
+          }
+        });
+      }
       stockSplitAudit.basicEPSHistoricalNormalization={
         method:basicHistorical.method,adjustedCount:basicHistorical.adjustedCount,
         unavailableCount:basicHistorical.unavailableCount
