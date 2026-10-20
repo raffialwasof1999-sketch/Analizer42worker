@@ -65,3 +65,44 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
     unavailableCount:unverified.length,unverified,
     method:'SEC share-basis verified quarterly basic EPS; derived Q4 uses annual share proof'};
 }
+
+/**
+ * Bridge an otherwise disconnected SEC 10-Q basic EPS to an annual filing
+ * that reports basic EPS and basic weighted shares on the SAME share basis.
+ *
+ * A later restated 10-K may use 10x the shares of the original 10-Q. Choose
+ * an as-filed annual observation matching the quarter's denominator instead
+ * of arbitrarily picking the newest annual comparative.
+ */
+export function findMatchingAnnualBasicEPSBasis(quarter,annual,epsFacts,sharesFacts,graph){
+  const finite=x=>typeof x==='number'&&Number.isFinite(x);
+  const closeEPS=(computed,reported)=>
+    Math.abs(computed-reported)<=Math.max(.035,Math.abs(reported)*.06);
+  if(!quarter||!annual||!Array.isArray(epsFacts)||!Array.isArray(sharesFacts)||
+     !graph||!finite(quarter.basicShares)||quarter.basicShares<=0||
+     !finite(quarter.basicEPS)||!finite(quarter.netIncome)||
+     !closeEPS(quarter.netIncome/quarter.basicShares,quarter.basicEPS)||
+     !(quarter.fiscalPeriodEnd<=annual.fiscalPeriodEnd)||
+     quarter.fiscalYear!==annual.fiscalYear||
+     !finite(annual.netIncome))return null;
+  const compatible=[];
+  for(const e of epsFacts){
+    if(e.end!==annual.fiscalPeriodEnd||!['10-K','10-K/A'].includes(e.form)||
+       !e.accn||!finite(e.val)||
+       !finite(graph.shareFactors?.[e.accn])||
+       graph.shareFactors[e.accn]<=0)continue;
+    const share=sharesFacts.find(r=>
+      r.accn===e.accn && r.start===e.start &&
+      r.end===e.end && finite(r.val)&&r.val>0 &&
+      ['10-K','10-K/A'].includes(r.form));
+    if(!share)continue;
+    const shareDifference=Math.abs(share.val/quarter.basicShares-1);
+    if(shareDifference>.10 || !closeEPS(annual.netIncome/share.val,e.val))continue;
+    compatible.push({annualAccession:e.accn,annualShares:share.val,
+      quarterShares:quarter.basicShares,shareDifference});
+  }
+  compatible.sort((a,b)=>a.shareDifference-b.shareDifference);
+  const best=compatible[0];
+  return best?{annualAccession:best.annualAccession,
+    annualShares:best.annualShares,quarterShares:best.quarterShares}:null;
+}
