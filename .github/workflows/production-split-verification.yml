@@ -73,3 +73,26 @@ jobs:
           done
           echo 'Production did not converge to the tested basic EPS release'
           exit 1
+
+      - name: Verify spreadsheet CSV source and stable SEC quarter order
+        if: github.event_name == 'push'
+        env:
+          PROD: https://analyzer42-sec.raffialwasof-1999.workers.dev
+        run: |
+          set -euo pipefail
+          for period in annual quarterly; do
+            curl --fail-with-body --silent --show-error --max-time 90 \
+              "$PROD/?ticker=AAPL&basicEpsCsv=$period" -o "/tmp/basic-$period.csv"
+            PERIOD="$period" node <<'JS'
+          const fs=require('fs');
+          const p=process.env.PERIOD;
+          const rows=fs.readFileSync('/tmp/basic-'+p+'.csv','utf8').trimEnd().split(/\r?\n/);
+          if(!rows.every(x=>x==='NA'||/^-?\d+(?:\.\d+)?$/.test(x)))
+            throw Error('Invalid basic EPS CSV rows');
+          if(p==='annual'&&Math.abs(Number(rows[0])-7.49)>.03)
+            throw Error('Missing Apple annual basic EPS in CSV');
+          if(p==='quarterly'&&Math.abs(Number(rows[3])-1.85)>.06)
+            throw Error('Missing Apple Q4 basic EPS in CSV');
+          console.log('CSV feed verified:',p,rows.length,'rows; first EPS:',rows[0]);
+          JS
+          done
