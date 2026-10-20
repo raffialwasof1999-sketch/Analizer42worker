@@ -86,3 +86,33 @@ test('basic EPS with unverified share basis remains absent, not guessed',()=>{
  assert.equal(result.rows[0].basicEPS,null);
  assert.equal(result.complete,false);
 });
+
+
+test('CSV basic EPS exposes sparse rows in stable annual and quarterly order',async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async url=>{
+   url=String(url);
+   if(url.includes('company_tickers.json'))return Response.json(company);
+   if(url.includes('/companyfacts/'))return Response.json(facts);
+   if(url.includes('/submissions/'))return Response.json(details);
+   throw Error('Unexpected SEC fetch '+url);
+ };
+ try{
+   for(const [period,first,second] of [
+     ['annual','7.49',null],
+     ['quarterly','NA','1.59']
+   ]){
+     const response=await worker.fetch(new Request(
+       'https://example.test/?ticker=TEST&basicEpsCsv='+period));
+     assert.equal(response.status,200);
+     assert.match(response.headers.get('content-type'),/^text\/csv/);
+     const lines=(await response.text()).trimEnd().split('\n');
+     assert.equal(lines[0],first);
+     if(second!==null)assert.equal(lines[1],second);
+     assert.ok(lines.every(x=>x==='NA'||/^-?\d+(?:\.\d+)?$/.test(x)));
+   }
+   const invalid=await worker.fetch(new Request(
+     'https://example.test/?ticker=TEST&basicEpsCsv=wrong'));
+   assert.equal(invalid.status,400);
+ }finally{globalThis.fetch=original;}
+});
