@@ -39,3 +39,36 @@ test('no observed split preserves reported basic EPS',()=>{
  assert.equal(normalizeHistoricalBasicEPS(rows,
    {shareFactors:{},changedBasisEdges:[],conflicts:[]},()=>[]).rows[0].basicEPS,2);
 });
+
+
+test('SEC annual weighted basic shares confirm an otherwise disconnected quarter',()=>{
+ const rows=[{fiscalYear:2025,fiscalQuarter:1,fiscalPeriodEnd:'2024-12-28',
+    basicEPS:2.42,netIncome:2420}];
+ const g={...graph,shareFactors:{annual:1},conflicts:[]};
+ const out=normalizeHistoricalBasicEPS(rows,g,
+    ()=>[{accn:'quarter-disconnected',val:2.42}],[],
+    ()=>({annualAccession:'annual',annualShares:1050,quarterShares:1000}));
+ assert.equal(out.rows[0].basicEPS,2.42);
+ assert.equal(out.unavailableCount,0);
+});
+test('SEC annual share factor adjusts an earlier same-basis basic EPS',()=>{
+ const rows=[{fiscalYear:2018,fiscalQuarter:1,fiscalPeriodEnd:'2017-12-30',
+    basicEPS:4,netIncome:4000}];
+ const out=normalizeHistoricalBasicEPS(rows,graph,
+    ()=>[{accn:'quarter-disconnected',val:4}],[],
+    ()=>({annualAccession:'old',annualShares:1015,quarterShares:1000}));
+ assert.equal(out.rows[0].basicEPS,1);
+});
+test('reject quarter with mismatched basic shares or unreconciled income',()=>{
+ const row={fiscalYear:2020,fiscalQuarter:1,fiscalPeriodEnd:'2019-12-28',
+    basicEPS:4,netIncome:4000};
+ const badShares=normalizeHistoricalBasicEPS([row],graph,()=>[],[],
+    ()=>({annualAccession:'new',annualShares:4000,quarterShares:1000}));
+ assert.equal(badShares.rows[0].basicEPS,null);
+ const badIncome=normalizeHistoricalBasicEPS([row],graph,()=>[],[],
+    ()=>({annualAccession:'new',annualShares:1000,quarterShares:1000}));
+ const validRatio=normalizeHistoricalBasicEPS([{...row,netIncome:1000}],graph,()=>[],[],
+    ()=>({annualAccession:'new',annualShares:1000,quarterShares:1000}));
+ assert.equal(badIncome.rows[0].basicEPS,4);
+ assert.equal(validRatio.rows[0].basicEPS,null);
+});
