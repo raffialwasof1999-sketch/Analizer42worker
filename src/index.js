@@ -1,6 +1,7 @@
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
+import { reconstructFourthQuarterEPS } from './quarter-four-eps.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -861,6 +862,9 @@ export default {
 
       enrichQuarterDates(quarters,sub);
       coverShares(quarters,facts);
+      const quarterFourEPS=reconstructFourthQuarterEPS(
+        quarters,annualFinancials,map.dilutedShares
+      );
 
       const quarterlyFinancials =
         outputRows(quarters,QUARTER_FIELDS);
@@ -899,6 +903,7 @@ export default {
       const autoQuarterly=autoAnnual && quarterlyNormalized.complete;
       const finalAnnual=autoAnnual?annualNormalized.rows:annualFinancials;
       const finalQuarterly=autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials;
+      stockSplitAudit.quarterFourEPS=quarterFourEPS;
       stockSplitAudit.companyFactsNormalization={
         method:basisGraph.method,
         anchorAccession:basisGraph.anchorAccession,
