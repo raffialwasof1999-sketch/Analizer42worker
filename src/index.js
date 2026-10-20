@@ -1,6 +1,7 @@
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
+import { deriveQ4BasicEPS } from './q4-basic-eps.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -57,6 +58,7 @@ const TAGS = {
   ],
   dilutedEPS: ['EarningsPerShareDiluted'],
   basicEPS: ['EarningsPerShareBasic'],
+  basicShares: ['WeightedAverageNumberOfSharesOutstandingBasic'],
   dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding'],
   dividendsPaid: ['PaymentsOfDividends','PaymentsOfDividendsCommonStock'],
   dividendsPerShare: [
@@ -101,6 +103,7 @@ const INSTANT = new Set([
 
 const UNITS = {
   basicEPS: 'USD/shares',
+  basicShares: 'shares',
   dilutedEPS: 'USD/shares',
   dividendsPerShare: 'USD/shares',
   dilutedShares: 'shares'
@@ -863,6 +866,7 @@ export default {
 
       enrichQuarterDates(quarters,sub);
       coverShares(quarters,facts);
+      const q4BasicEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,map.basicShares);
 
       const quarterlyFinancials =
         outputRows(quarters,QUARTER_FIELDS);
@@ -901,6 +905,7 @@ export default {
       const autoQuarterly=autoAnnual && quarterlyNormalized.complete;
       const finalAnnual=autoAnnual?annualNormalized.rows:annualFinancials;
       const finalQuarterly=autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials;
+      stockSplitAudit.quarterFourBasicEPS=q4BasicEPSEvidence;
       stockSplitAudit.companyFactsNormalization={
         method:basisGraph.method,
         anchorAccession:basisGraph.anchorAccession,
