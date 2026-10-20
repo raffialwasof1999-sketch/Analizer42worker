@@ -68,13 +68,13 @@ test('Worker exports reported basic EPS in appended schema without changing dilu
 test('basic EPS split scaling preserves diluted EPS and cash flows',()=>{
  const row={fiscalPeriodEnd:'2019-12-31',basicEPS:8.2,dilutedEPS:8,
    dilutedShares:100,netIncome:800};
- const graph={shareFactors:{before:0.25},conflicts:[]};
+ const graph={shareFactors:{before:4},conflicts:[]};
  const result=normalizeUsingSECShareGraph([row],graph,(_,metric)=>
    [{accn:'before',val:row[metric]}]);
  assert.equal(result.complete,true);
  assert.equal(result.rows[0].basicEPS,2.05);
  assert.equal(result.rows[0].dilutedEPS,2);
- assert.equal(result.rows[0].dilutedShares,25);
+ assert.equal(result.rows[0].dilutedShares,400);
  assert.equal(result.rows[0].netIncome,800);
  assert.equal(row.basicEPS,8.2);
 });
