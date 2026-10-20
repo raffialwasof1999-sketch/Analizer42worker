@@ -61,6 +61,26 @@ jobs:
               years2021to2026:q.filter(x=>x.fiscalYear>=2021)
                 .map(x=>({fiscalYear:x.fiscalYear,q:x.fiscalQuarter,basicEPS:x.basicEPS}))
             };
+            const needed=new Set(['2021-01-31','2021-05-02','2021-08-01',
+              '2021-10-31','2023-01-29','2023-04-30','2023-07-30','2023-10-29',
+              '2025-11-02','2026-02-01','2026-05-03','2026-08-02']);
+            const gaap=facts.facts['us-gaap'];
+            const raw={};
+            for(const [label,tag,unit] of [
+              ['basicEPS','EarningsPerShareBasic','USD/shares'],
+              ['basicShares','WeightedAverageNumberOfSharesOutstandingBasic','shares']]){
+              raw[label]=(gaap[tag]?.units?.[unit]||[])
+                .filter(x=>needed.has(x.end)&&['10-Q','10-K'].includes(x.form)&&
+                  x.start&&x.end&&x.filed)
+                .sort((a,b)=>a.end.localeCompare(b.end)||a.filed.localeCompare(b.filed))
+                .map(x=>({end:x.end,start:x.start,val:x.val,
+                  filed:x.filed,accn:x.accn,form:x.form}));
+            }
+            const inspect={fiscalRows:q.filter(x=>[2021,2023,2026].includes(x.fiscalYear))
+              .map(x=>({fy:x.fiscalYear,q:x.fiscalQuarter,
+                netIncome:x.netIncome,basicEPS:x.basicEPS,periodEnd:x.fiscalPeriodEnd})),
+              raw};
+            console.log('AVGO_SEC_DIAGNOSTIC '+JSON.stringify(inspect));
             console.log('AVGO_LIVE_SEC_AUDIT '+JSON.stringify(report));
             if(out.stockSplitAudit.companyFactsNormalization.conflictCount>0)
               throw Error('AVGO SEC split graph inconsistent');
