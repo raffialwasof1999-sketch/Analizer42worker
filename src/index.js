@@ -26,7 +26,7 @@ const ANNUAL_FIELDS = [
   'incomeTaxExpense','incomeBeforeTax','dilutedEPS','revenueGrowth',
   'fiscalPeriodEnd','dividendsPaid','dividendsPerShare','acquisitions',
   'divestitures','netAcquisitions','investedCapital',
-  'averageInvestedCapital','nopat'
+  'averageInvestedCapital','nopat','basicEPS'
 ];
 
 const QUARTER_FIELDS = [
@@ -35,7 +35,7 @@ const QUARTER_FIELDS = [
   'dividendsPaid','dividendsPerShare','operatingIncome','incomeTaxExpense',
   'incomeBeforeTax','investedCapital','stockholdersEquity','totalDebt',
   'cash','roic','dilutedShares','sharesOutstanding',
-  'sharesOutstandingAsOf','secFilingDate','earningsDisclosureDate'
+  'sharesOutstandingAsOf','secFilingDate','earningsDisclosureDate','basicEPS'
 ];
 
 const TAGS = {
@@ -56,6 +56,7 @@ const TAGS = {
     'IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments'
   ],
   dilutedEPS: ['EarningsPerShareDiluted'],
+  basicEPS: ['EarningsPerShareBasic'],
   dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding'],
   dividendsPaid: ['PaymentsOfDividends','PaymentsOfDividendsCommonStock'],
   dividendsPerShare: [
@@ -99,6 +100,7 @@ const INSTANT = new Set([
 ]);
 
 const UNITS = {
+  basicEPS: 'USD/shares',
   dilutedEPS: 'USD/shares',
   dividendsPerShare: 'USD/shares',
   dilutedShares: 'shares'
@@ -391,7 +393,7 @@ function buildQuarterly(map,ends) {
         const direct = val(map[key],end,'quarter',forms);
         let amount = null;
 
-        if (key==='dilutedShares' || key==='dilutedEPS') {
+        if (key==='dilutedShares' || key==='dilutedEPS' || key==='basicEPS') {
           amount = direct;
         } else if (n(direct)!==null) {
           amount = direct;
@@ -939,7 +941,7 @@ export default {
               quarterlyFinancials[i].fiscalQuarter===
               r.fiscalYear*4+r.fiscalQuarter+1
             ),
-          note:'SEC reported facts; historical diluted EPS/shares automatically normalized only where overlapping SEC filing evidence supports the share basis. Unverifiable earlier EPS may be blank.'
+          note:'SEC reported basic and diluted EPS; historical per-share values are normalized only with corroborating SEC share-basis evidence. Unverifiable earlier EPS may be blank.'
         },
         retrievedAt:new Date().toISOString(),
         provenance:
