@@ -62,7 +62,7 @@ jobs:
                 .map(x=>({fiscalYear:x.fiscalYear,q:x.fiscalQuarter,basicEPS:x.basicEPS}))
             };
             const needed=new Set(['2021-01-31','2021-05-02','2021-08-01',
-              '2021-10-31','2023-01-29','2023-04-30','2023-07-30','2023-10-29',
+              '2021-10-31','2020-02-02','2020-05-03','2020-08-02','2020-11-01','2023-01-29','2023-04-30','2023-07-30','2023-10-29',
               '2025-11-02','2026-02-01','2026-05-03','2026-08-02']);
             const gaap=facts.facts['us-gaap'];
             const raw={};
@@ -76,7 +76,7 @@ jobs:
                 .map(x=>({end:x.end,start:x.start,val:x.val,
                   filed:x.filed,accn:x.accn,form:x.form}));
             }
-            const inspect={fiscalRows:q.filter(x=>[2021,2023,2026].includes(x.fiscalYear))
+            const inspect={fiscalRows:q.filter(x=>[2020,2021,2023,2026].includes(x.fiscalYear))
               .map(x=>({fy:x.fiscalYear,q:x.fiscalQuarter,
                 netIncome:x.netIncome,basicEPS:x.basicEPS,periodEnd:x.fiscalPeriodEnd})),
               raw};
