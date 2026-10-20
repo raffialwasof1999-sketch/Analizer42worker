@@ -1,0 +1,43 @@
+name: Verify production SEC split deployment
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  production-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check production Cloudflare Worker against live SEC data
+        env:
+          PROD: https://analyzer42-sec.raffialwasof-1999.workers.dev
+        run: |
+          set -euo pipefail
+          for ticker in AAPL NVDA TSLA GE MSFT; do
+            echo "Checking production $ticker"
+            curl --fail-with-body --silent --show-error --max-time 90 \
+              "$PROD/?ticker=$ticker" -o "/tmp/$ticker.json"
+            TICKER="$ticker" node <<'JS'
+          const fs = require('fs');
+          const ticker=process.env.TICKER;
+          const d=JSON.parse(fs.readFileSync('/tmp/'+ticker+'.json','utf8'));
+          if (!d.success) throw Error(ticker+': '+d.error);
+          if (!d.stockSplitAudit?.companyFactsNormalization) throw Error(ticker+': production is missing new split normalization');
+          const meta=d.stockSplitAudit.companyFactsNormalization;
+          if (!Array.isArray(d.annualFinancials)||!Array.isArray(d.quarterlyFinancials))
+            throw Error(ticker+': financial output missing');
+          if (ticker==='AAPL' && !meta.annualApplied)
+            throw Error('Apple split normalization not applied');
+          if (ticker==='MSFT' && meta.annualApplied)
+            throw Error('Unexpected historical Microsoft split normalization');
+          if (!d.annualFinancials[0].hasOwnProperty('fiscalYear') ||
+              !d.annualFinancials[0].hasOwnProperty('dilutedEPS'))
+            throw Error('Annual spreadsheet schema changed');
+          console.log(JSON.stringify({ticker,annualApplied:meta.annualApplied,
+            quarterlyApplied:meta.quarterlyApplied,
+            annualUnverified:meta.annualUnverified,
+            changedBasisEdges:meta.changedBasisEdges,
+            latestYear:d.annualFinancials[0].fiscalYear,
+            latestEPS:d.annualFinancials[0].dilutedEPS}));
+          JS
+          done
