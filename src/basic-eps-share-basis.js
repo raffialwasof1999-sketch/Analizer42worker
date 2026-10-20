@@ -76,8 +76,11 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
  */
 export function findMatchingAnnualBasicEPSBasis(quarter,annual,epsFacts,sharesFacts,graph){
   const finite=x=>typeof x==='number'&&Number.isFinite(x);
+  // SEC basic EPS excludes preferred dividends from earnings available to
+  // common holders. GAAP gross net income may therefore differ materially,
+  // even while EPS and basic shares agree within the same SEC filing.
   const closeEPS=(computed,reported)=>
-    Math.abs(computed-reported)<=Math.max(.035,Math.abs(reported)*.06);
+    Math.abs(computed-reported)<=Math.max(.035,Math.abs(computed)*.30);
   if(!quarter||!annual||!Array.isArray(epsFacts)||!Array.isArray(sharesFacts)||
      !graph||!finite(quarter.basicShares)||quarter.basicShares<=0||
      !finite(quarter.basicEPS)||!finite(quarter.netIncome)||
