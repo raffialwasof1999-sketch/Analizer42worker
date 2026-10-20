@@ -82,8 +82,10 @@ export function findMatchingAnnualBasicEPSBasis(quarter,annual,epsFacts,sharesFa
      !graph||!finite(quarter.basicShares)||quarter.basicShares<=0||
      !finite(quarter.basicEPS)||!finite(quarter.netIncome)||
      !closeEPS(quarter.netIncome/quarter.basicShares,quarter.basicEPS)||
-     !(quarter.fiscalPeriodEnd<=annual.fiscalPeriodEnd)||
-     quarter.fiscalYear!==annual.fiscalYear||
+     !((quarter.fiscalYear===annual.fiscalYear&&
+         quarter.fiscalPeriodEnd<=annual.fiscalPeriodEnd)||
+       (quarter.fiscalYear===annual.fiscalYear+1&&
+         quarter.fiscalPeriodEnd>annual.fiscalPeriodEnd))||
      !finite(annual.netIncome))return null;
   const compatible=[];
   for(const e of epsFacts){
