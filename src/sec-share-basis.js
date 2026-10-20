@@ -122,7 +122,7 @@ export function normalizeUsingSECShareGraph(rows,graph,findSource) {
   const bad=graph.conflicts?.length>0;
   for(const row of rows){
     const adjusted={...row};
-    for(const metric of ['dilutedEPS','dilutedShares']){
+    for(const metric of ['dilutedEPS','basicEPS','dilutedShares']){
       if(!isNumber(row[metric]))continue;
       const possible=findSource(row,metric);
       const options=Array.isArray(possible)?possible:[possible];
@@ -135,7 +135,7 @@ export function normalizeUsingSECShareGraph(rows,graph,findSource) {
         adjusted[metric]=null;
         issues.push({periodEnd:row.fiscalPeriodEnd,metric,status:'SEC-share-basis-unconnected',accn:source?.accn||null});
       }else{
-        adjusted[metric]=metric==='dilutedEPS'?row[metric]/factor:row[metric]*factor;
+        adjusted[metric]=metric==='dilutedShares'?row[metric]*factor:row[metric]/factor;
         adjustments.push({periodEnd:row.fiscalPeriodEnd,metric,sourceAccession:source.accn,shareFactor:factor});
       }
     }
