@@ -1,6 +1,8 @@
 name: Verify production SEC split deployment
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -41,3 +43,33 @@ jobs:
             latestEPS:d.annualFinancials[0].dilutedEPS}));
           JS
           done
+
+      - name: Verify production basic EPS after main deployment
+        if: github.event_name == 'push'
+        env:
+          PROD: https://analyzer42-sec.raffialwasof-1999.workers.dev
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            echo "Checking production basic EPS attempt $attempt"
+            if curl --fail --silent --show-error --max-time 90 \
+              "$PROD/?ticker=AAPL" -o /tmp/aapl-basic-production.json &&
+              node <<'JS'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/aapl-basic-production.json','utf8'));
+          if(!d.success)throw Error(d.error);
+          const a=d.annualFinancials.find(r=>r.fiscalYear===2025);
+          const q=d.quarterlyFinancials.find(r=>r.fiscalYear===2025&&r.fiscalQuarter===4);
+          if(Math.abs(a?.basicEPS-7.49)>.03)throw Error('Annual basic EPS not deployed: '+a?.basicEPS);
+          if(Math.abs(q?.basicEPS-1.85)>.06)throw Error('Q4 basic EPS not deployed: '+q?.basicEPS);
+          if(!d.stockSplitAudit?.basicEPSHistoricalNormalization)
+            throw Error('Split-basis safeguards not deployed');
+          console.log('Production SEC basic EPS verified:',JSON.stringify({annual:a.basicEPS,q4:q.basicEPS}));
+          JS
+            then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo 'Production did not converge to the tested basic EPS release'
+          exit 1
