@@ -84,7 +84,49 @@ jobs:
             console.log('AVGO_LIVE_SEC_AUDIT '+JSON.stringify(report));
             if(out.stockSplitAudit.companyFactsNormalization.conflictCount>0)
               throw Error('AVGO SEC split graph inconsistent');
-            if(report.pre2024BasicCount<5)
-              throw Error('AVGO old basic EPS remains mostly missing: '+report.pre2024BasicCount);
+            if(report.pre2024BasicCount!==12)
+              throw Error('AVGO 2021-2023 basic EPS incomplete: '+report.pre2024BasicCount);
+            const completeWindow=q.filter(x=>
+              (x.fiscalYear===2020 && x.fiscalQuarter===4)||
+              (x.fiscalYear>=2021&&x.fiscalYear<=2025)||
+              (x.fiscalYear===2026&&x.fiscalQuarter<=3));
+            const missing=completeWindow.filter(x=>!Number.isFinite(x.basicEPS));
+            if(missing.length)throw Error('AVGO historical P/E window has incomplete basic EPS: '+
+              JSON.stringify(missing.map(x=>[x.fiscalYear,x.fiscalQuarter])));
+            console.log('AVGO 2020Q4 through 2026Q3: '+completeWindow.length+
+              ' quarters of split-normalized basic EPS present');
           }finally{globalThis.fetch=realFetch;}
+          // Run THIS PR's SEC Worker against live SEC data for peer issuers,
+          // without deploying or writing to production.
+          for(const [ticker,num] of [
+            ['AAPL','0000320193'],['NVDA','0001045810'],
+            ['TSLA','0001318605'],['MSFT','0000789019'],['GE','0000040545']]){
+            const [peerFacts,peerSub]=await Promise.all([
+              read('https://data.sec.gov/api/xbrl/companyfacts/CIK'+num+'.json'),
+              read('https://data.sec.gov/submissions/CIK'+num+'.json')
+            ]);
+            globalThis.fetch=async url=>{
+              const u=String(url);
+              if(u.includes('company_tickers.json'))
+                return Response.json({'0':{ticker,cik_str:Number(num),title:ticker}});
+              if(u.includes('/companyfacts/'))return Response.json(peerFacts);
+              if(u.includes('/submissions/'))return Response.json(peerSub);
+              throw Error('Unexpected SEC request '+u);
+            };
+            try{
+              const response=await worker.fetch(new Request('https://test.local/?ticker='+ticker));
+              const result=await response.json();
+              if(!result.success || !result.annualFinancials?.length||
+                 !result.quarterlyFinancials?.length)
+                throw Error(ticker+': missing worker data: '+JSON.stringify(result).slice(0,500));
+              if(!Number.isFinite(result.annualFinancials[0].basicEPS))
+                throw Error(ticker+': current annual reported basic EPS not available');
+              console.log('LIVE_PEER_SEC '+JSON.stringify({
+                ticker,annualBasicEPS:result.annualFinancials[0].basicEPS,
+                quarterlyBasicEPS:result.quarterlyFinancials[0].basicEPS,
+                missingBasicEPS:result.stockSplitAudit.basicEPSHistoricalNormalization.unavailableCount,
+                splitEvidence:result.stockSplitAudit.companyFactsNormalization.changedBasisEdges
+              }));
+            }finally{globalThis.fetch=realFetch;}
+          }
           JS
