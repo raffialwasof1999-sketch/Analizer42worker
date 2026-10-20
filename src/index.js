@@ -905,11 +905,35 @@ export default {
       const autoAnnual=splitDetected && consistent;
       const autoQuarterly=autoAnnual && quarterlyNormalized.complete;
       const finalAnnual=autoAnnual?annualNormalized.rows:annualFinancials;
+      const annualSharesProof=(row)=>{
+        const quarter=quarters.find(q=>q.fiscalPeriodEnd===row.fiscalPeriodEnd);
+        const fiscalAnnual=annualFinancials.find(a=>a.fiscalYear===row.fiscalYear) ||
+          (row.fiscalYear===annualFinancials[0]?.fiscalYear+1
+            ? annualFinancials[0] : null);
+        if(!quarter || !fiscalAnnual)return null;
+        const epsSource=sourceCandidates(fiscalAnnual,'basicEPS','annual',
+          ['10-K','10-K/A']).find(x=>
+            n(x.val)!==null && n(fiscalAnnual.basicEPS)!==null &&
+            Math.abs(x.val-fiscalAnnual.basicEPS)<1e-7 &&
+            n(basisGraph.shareFactors[x.accn])!==null
+          );
+        if(!epsSource)return null;
+        const shares=map.basicShares.find(x=>
+          x.accn===epsSource.accn &&
+          x.end===fiscalAnnual.fiscalPeriodEnd &&
+          n(x.val)!==null && x.val>0 &&
+          validDate(x.start) && dayCount(x.start,x.end)>=330 &&
+          dayCount(x.start,x.end)<=385
+        );
+        if(!shares)return null;
+        return {annualAccession:epsSource.accn,annualShares:shares.val,
+          quarterShares:quarter.basicShares};
+      };
       const basicHistorical=normalizeHistoricalBasicEPS(
         quarterlyFinancials,basisGraph,
         row=>sourceCandidates(row,'basicEPS','quarter',
           row.fiscalQuarter===4?['10-K','10-K/A']:['10-Q','10-Q/A']),
-        q4BasicEPSEvidence.findings
+        q4BasicEPSEvidence.findings,annualSharesProof
       );
       const finalQuarterly=(autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials)
         .map((row,i)=>({...row,basicEPS:basicHistorical.rows[i].basicEPS}));
