@@ -924,7 +924,7 @@ export default {
         const records = basicCsv==='annual'?finalAnnual:finalQuarterly;
         const csv=records.map(r=>n(r.basicEPS)!==null
           ? String(r.basicEPS)
-          : 'NA').join('\\n')+'\\n';
+          : 'NA').join('\n')+'\n';
         return new Response(csv,{
           headers:{
             'content-type':'text/csv; charset=utf-8',
