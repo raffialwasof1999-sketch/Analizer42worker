@@ -2,7 +2,7 @@ import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateC
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
 import { deriveQ4BasicEPS } from './q4-basic-eps.js';
-import { normalizeHistoricalBasicEPS } from './basic-eps-share-basis.js';
+import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './basic-eps-share-basis.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -867,7 +867,7 @@ export default {
 
       enrichQuarterDates(quarters,sub);
       coverShares(quarters,facts);
-      const q4BasicEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,map.basicShares);
+      const q4BasicEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,map.basicShares,map.basicEPS);
 
       const quarterlyFinancials =
         outputRows(quarters,QUARTER_FIELDS);
@@ -910,24 +910,8 @@ export default {
         const fiscalAnnual=annualFinancials.find(a=>a.fiscalYear===row.fiscalYear) ||
           (row.fiscalYear===annualFinancials[0]?.fiscalYear+1
             ? annualFinancials[0] : null);
-        if(!quarter || !fiscalAnnual)return null;
-        const epsSource=sourceCandidates(fiscalAnnual,'basicEPS','annual',
-          ['10-K','10-K/A']).find(x=>
-            n(x.val)!==null && n(fiscalAnnual.basicEPS)!==null &&
-            Math.abs(x.val-fiscalAnnual.basicEPS)<1e-7 &&
-            n(basisGraph.shareFactors[x.accn])!==null
-          );
-        if(!epsSource)return null;
-        const shares=map.basicShares.find(x=>
-          x.accn===epsSource.accn &&
-          x.end===fiscalAnnual.fiscalPeriodEnd &&
-          n(x.val)!==null && x.val>0 &&
-          validDate(x.start) && dayCount(x.start,x.end)>=330 &&
-          dayCount(x.start,x.end)<=385
-        );
-        if(!shares)return null;
-        return {annualAccession:epsSource.accn,annualShares:shares.val,
-          quarterShares:quarter.basicShares};
+        return findMatchingAnnualBasicEPSBasis(quarter,fiscalAnnual,
+          map.basicEPS,map.basicShares,basisGraph);
       };
       const basicHistorical=normalizeHistoricalBasicEPS(
         quarterlyFinancials,basisGraph,

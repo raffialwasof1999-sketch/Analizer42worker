@@ -96,3 +96,46 @@ jobs:
           console.log('CSV feed verified:',p,rows.length,'rows; first EPS:',rows[0]);
           JS
           done
+
+      - name: Verify production AVGO five-year basic EPS after deployment
+        if: github.event_name == 'push'
+        env:
+          PROD: https://analyzer42-sec.raffialwasof-1999.workers.dev
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 16); do
+            echo "AVGO SEC production verification attempt $attempt"
+            if curl --fail-with-body --silent --show-error --max-time 90 \
+              "$PROD/?ticker=AVGO" -o /tmp/avgo-basic-production.json && 
+              node <<'JS'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/avgo-basic-production.json','utf8'));
+          if(!d.success)throw Error('AVGO '+d.error);
+          const rows=d.quarterlyFinancials;
+          const quarter=(fy,q)=>rows.find(x=>x.fiscalYear===fy&&x.fiscalQuarter===q)?.basicEPS;
+          for(const [fy,q,eps,tolerance] of [
+            [2020,4,.308,.018],[2021,4,.465,.020],[2023,4,.850,.025],
+            [2025,4,1.81,.06],[2026,3,2.75,.035]
+          ]){
+            const actual=quarter(fy,q);
+            if(typeof actual!=='number'||Math.abs(actual-eps)>tolerance)
+              throw Error('AVGO '+fy+'Q'+q+' expected '+eps+' got '+actual);
+          }
+          const prior=rows.filter(x=>x.fiscalYear>=2021&&x.fiscalYear<=2023);
+          if(prior.length!==12||prior.some(x=>typeof x.basicEPS!=='number'))
+            throw Error('AVGO historical fiscal 2021-2023 missing basic EPS');
+          const status=d.stockSplitAudit?.basicEPSHistoricalNormalization;
+          if(!status||status.unavailableCount>0)
+            throw Error('AVGO split basis missing '+JSON.stringify(status));
+          console.log('AVGO production basic EPS verified: ',JSON.stringify({
+            2020:quarter(2020,4),2021:quarter(2021,4),2023:quarter(2023,4),
+            historicalQuarters:prior.length,missing:status.unavailableCount
+          }));
+          JS
+            then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo 'AVGO production Worker has not deployed or cannot prove historical basic EPS'
+          exit 1

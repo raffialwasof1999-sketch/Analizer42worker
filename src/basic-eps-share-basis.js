@@ -46,8 +46,11 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
         isNumeric(graph.shareFactors?.[proof.annualAccession]) &&
         Math.abs(proof.quarterShares/proof.annualShares-1)<=0.10 &&
         isNumeric(row.netIncome) &&
+        // GAAP gross income may exceed earnings available to common
+        // shareholders due to preferred dividends; the annual bridge already
+        // matched basic EPS and weighted basic shares by SEC accession.
         Math.abs(row.netIncome/proof.quarterShares-row.basicEPS)<=
-          Math.max(0.035,Math.abs(row.basicEPS)*0.06)){
+          Math.max(0.035,Math.abs(row.netIncome/proof.quarterShares)*.30)){
         f=graph.shareFactors[proof.annualAccession];
         accn=proof.annualAccession;
       }
@@ -64,4 +67,50 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
   return {rows:out,adjustedCount:adjusted.length,
     unavailableCount:unverified.length,unverified,
     method:'SEC share-basis verified quarterly basic EPS; derived Q4 uses annual share proof'};
+}
+
+/**
+ * Bridge an otherwise disconnected SEC 10-Q basic EPS to an annual filing
+ * that reports basic EPS and basic weighted shares on the SAME share basis.
+ *
+ * A later restated 10-K may use 10x the shares of the original 10-Q. Choose
+ * an as-filed annual observation matching the quarter's denominator instead
+ * of arbitrarily picking the newest annual comparative.
+ */
+export function findMatchingAnnualBasicEPSBasis(quarter,annual,epsFacts,sharesFacts,graph){
+  const finite=x=>typeof x==='number'&&Number.isFinite(x);
+  // SEC basic EPS excludes preferred dividends from earnings available to
+  // common holders. GAAP gross net income may therefore differ materially,
+  // even while EPS and basic shares agree within the same SEC filing.
+  const closeEPS=(computed,reported)=>
+    Math.abs(computed-reported)<=Math.max(.035,Math.abs(computed)*.30);
+  if(!quarter||!annual||!Array.isArray(epsFacts)||!Array.isArray(sharesFacts)||
+     !graph||!finite(quarter.basicShares)||quarter.basicShares<=0||
+     !finite(quarter.basicEPS)||!finite(quarter.netIncome)||
+     !closeEPS(quarter.netIncome/quarter.basicShares,quarter.basicEPS)||
+     !((quarter.fiscalYear===annual.fiscalYear&&
+         quarter.fiscalPeriodEnd<=annual.fiscalPeriodEnd)||
+       (quarter.fiscalYear===annual.fiscalYear+1&&
+         quarter.fiscalPeriodEnd>annual.fiscalPeriodEnd))||
+     !finite(annual.netIncome))return null;
+  const compatible=[];
+  for(const e of epsFacts){
+    if(e.end!==annual.fiscalPeriodEnd||!['10-K','10-K/A'].includes(e.form)||
+       !e.accn||!finite(e.val)||
+       !finite(graph.shareFactors?.[e.accn])||
+       graph.shareFactors[e.accn]<=0)continue;
+    const share=sharesFacts.find(r=>
+      r.accn===e.accn && r.start===e.start &&
+      r.end===e.end && finite(r.val)&&r.val>0 &&
+      ['10-K','10-K/A'].includes(r.form));
+    if(!share)continue;
+    const shareDifference=Math.abs(share.val/quarter.basicShares-1);
+    if(shareDifference>.10 || !closeEPS(annual.netIncome/share.val,e.val))continue;
+    compatible.push({annualAccession:e.accn,annualShares:share.val,
+      quarterShares:quarter.basicShares,shareDifference});
+  }
+  compatible.sort((a,b)=>a.shareDifference-b.shareDifference);
+  const best=compatible[0];
+  return best?{annualAccession:best.annualAccession,
+    annualShares:best.annualShares,quarterShares:best.quarterShares}:null;
 }
