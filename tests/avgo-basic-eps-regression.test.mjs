@@ -185,3 +185,37 @@ test('AVGO 2021 preferred dividends use basic common earnings rather than gross 
   assert.ok(q[3].basicEPS>4.5&&q[3].basicEPS<4.8,q[3].basicEPS);
   assert.equal(result.findings[0].estimationMethod,'SEC-basic-EPS-weighted-shares-common-earnings');
 });
+
+test('AVGO FY2020 preferred dividends do not erase as-filed basic EPS',()=>{
+  const f2020='0001730168-20-000226';
+  const year={fiscalYear:2020,fiscalPeriodEnd:'2020-11-01',
+    netIncome:2960e6,basicEPS:6.62};
+  const q=[
+    {fiscalYear:2020,fiscalQuarter:1,fiscalPeriodEnd:'2020-02-02',
+      netIncome:385e6,basicEPS:.78,basicShares:398e6},
+    {fiscalYear:2020,fiscalQuarter:2,fiscalPeriodEnd:'2020-05-03',
+      netIncome:563e6,basicEPS:1.22,basicShares:401e6},
+    {fiscalYear:2020,fiscalQuarter:3,fiscalPeriodEnd:'2020-08-02',
+      netIncome:688e6,basicEPS:1.52,basicShares:403e6},
+    {fiscalYear:2020,fiscalQuarter:4,fiscalPeriodEnd:'2020-11-01',
+      netIncome:1324e6,basicEPS:null}
+  ];
+  const a={accn:f2020,form:'10-K',filed:'2020-12-18',
+    start:'2019-11-04',end:'2020-11-01'};
+  const shares=[{...a,val:402e6}],eps=[{...a,val:6.62}];
+  for(const [i,accn,start,weighted,reported] of [
+    [0,'0001730168-20-000045','2019-11-04',398e6,.78],
+    [1,'0001730168-20-000109','2020-02-03',401e6,1.22],
+    [2,'0001730168-20-000164','2020-05-04',403e6,1.52]]){
+    const row={accn,start,end:q[i].fiscalPeriodEnd,form:'10-Q',filed:'2020-09-11'};
+    shares.push({...row,val:weighted});
+    eps.push({...row,val:reported});
+  }
+  const proof=findMatchingAnnualBasicEPSBasis(q[0],year,eps,shares,
+    {shareFactors:{[f2020]:10}});
+  assert.equal(proof?.annualAccession,f2020);
+  const estimate=deriveQ4BasicEPS(q,[year],shares,eps);
+  assert.equal(estimate.estimatedCount,1);
+  assert.equal(estimate.findings[0].estimationMethod,'SEC-basic-EPS-weighted-shares-common-earnings');
+  assert.ok(q[3].basicEPS>2.9&&q[3].basicEPS<3.3,q[3].basicEPS);
+});
