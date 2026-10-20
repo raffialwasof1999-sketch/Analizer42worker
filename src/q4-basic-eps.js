@@ -47,17 +47,18 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
     });
     if(!compatible.length)continue;
     const ends=first.map(q=>q.fiscalPeriodEnd);
-    if(!(source.start<ends[0]&&ends[0]<ends[1]&&
-      ends[1]<ends[2]&&ends[2]<q4.fiscalPeriodEnd))continue;
-    const qdays=[
-      days(source.start,ends[0])+1,days(ends[0],ends[1]),
-      days(ends[1],ends[2]),days(ends[2],q4.fiscalPeriodEnd)
-    ];
-    const allDays=days(source.start,q4.fiscalPeriodEnd)+1;
-    if(qdays.some(d=>d<70||d>105)||allDays<340||allDays>375||
-      Math.abs(qdays.reduce((a,b)=>a+b,0)-allDays)>.01)continue;
+    if(!(ends[0]<ends[1]&&ends[1]<ends[2]&&
+      ends[2]<q4.fiscalPeriodEnd))continue;
     let chosen=null;
     for(const {source,annualEPS} of compatible){
+      if(!(source.start<ends[0]))continue;
+      const qdays=[
+        days(source.start,ends[0])+1,days(ends[0],ends[1]),
+        days(ends[1],ends[2]),days(ends[2],q4.fiscalPeriodEnd)
+      ];
+      const allDays=days(source.start,q4.fiscalPeriodEnd)+1;
+      if(qdays.some(d=>d<70||d>105)||allDays<340||allDays>375||
+        Math.abs(qdays.reduce((a,b)=>a+b,0)-allDays)>.01)continue;
       const derivedShares=(source.val*allDays-
         first.reduce((sum,q,i)=>sum+q.basicShares*qdays[i],0))/qdays[3];
       if(!finite(derivedShares)||derivedShares<=0||
