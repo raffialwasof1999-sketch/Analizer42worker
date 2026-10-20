@@ -38,7 +38,8 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
             ['10-K','10-K/A'].includes(e.form) && finite(e.val))
         : [{val:yr.basicEPS}]; // Compatibility for callers with no fact provenance.
       return annualValues.filter(e=>
-        plausible(yr.netIncome/source.val,e.val)
+        Math.abs(yr.netIncome-e.val*source.val)<=
+          Math.max(1,Math.abs(yr.netIncome)*.30)
       ).map(e=>({source,annualEPS:e.val}));
     });
     if(!compatible.length)continue;
@@ -69,7 +70,7 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
           sh.form==='10-Q' && finite(sh.val) && sh.val>0 &&
           Math.abs(sh.val/source.val-1)<=.25 &&
           Math.abs(e.val*sh.val-q.netIncome)<=
-            Math.max(1,Math.abs(q.netIncome)*.10)
+            Math.max(1,Math.abs(q.netIncome)*.30)
         ).map(sh=>({eps:e.val,shares:sh.val,filed:e.filed||''})));
         matches.sort((x,y)=>x.filed.localeCompare(y.filed));
         return matches[0]||null;
