@@ -46,8 +46,11 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
         isNumeric(graph.shareFactors?.[proof.annualAccession]) &&
         Math.abs(proof.quarterShares/proof.annualShares-1)<=0.10 &&
         isNumeric(row.netIncome) &&
+        // GAAP gross income may exceed earnings available to common
+        // shareholders due to preferred dividends; the annual bridge already
+        // matched basic EPS and weighted basic shares by SEC accession.
         Math.abs(row.netIncome/proof.quarterShares-row.basicEPS)<=
-          Math.max(0.035,Math.abs(row.basicEPS)*0.06)){
+          Math.max(0.035,Math.abs(row.netIncome/proof.quarterShares)*.30)){
         f=graph.shareFactors[proof.annualAccession];
         accn=proof.annualAccession;
       }
