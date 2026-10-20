@@ -40,7 +40,7 @@ test('never infer basis by mixing EPS and shares from different SEC accessions',
     [epsFacts[0]],[sharesFacts[0]],{shareFactors:{}}),null);
   assert.equal(findMatchingAnnualBasicEPSBasis(
     {...quarter,basicShares:4.08e9},annual,epsFacts,sharesFacts,graph)
-    ?.annualAccession,null);
+    ?.annualAccession??null,null);
 });
 
 test('refuse quarterly bridge when EPS is not reconciled to common-share basis',()=>{
