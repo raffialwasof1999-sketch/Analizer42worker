@@ -1,0 +1,50 @@
+name: Verify basic EPS Cloudflare preview
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  basic-eps-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify reported SEC basic EPS against live Cloudflare preview
+        env:
+          PREVIEW: https://feature-basic-eps-historical-pe-20261020-analyzer42-sec.raffialwasof-1999.workers.dev
+        run: |
+          set -euo pipefail
+          for ticker in AAPL NVDA TSLA GE MSFT; do
+            echo "Checking preview $ticker"
+            # Deployment and SEC data retrieval can lag a PR commit.
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              if curl --fail-with-body --silent --show-error --max-time 90 \
+                "$PREVIEW/?ticker=$ticker" -o "/tmp/$ticker.json"; then
+                if TICKER="$ticker" node <<'JS'
+          const fs=require('fs');
+          const ticker=process.env.TICKER;
+          const d=JSON.parse(fs.readFileSync('/tmp/'+ticker+'.json','utf8'));
+          if(!d.success)throw Error(ticker+': '+d.error);
+          if(!Array.isArray(d.annualFinancials)||!Array.isArray(d.quarterlyFinancials))
+            throw Error('Missing SEC periods');
+          if(!Object.prototype.hasOwnProperty.call(d.annualFinancials[0],'basicEPS') ||
+             !Object.prototype.hasOwnProperty.call(d.quarterlyFinancials[0],'basicEPS'))
+            throw Error('Preview not running basicEPS schema');
+          const annual=d.annualFinancials.find(x=>x.fiscalYear===2025);
+          const q=d.quarterlyFinancials.find(x=>x.fiscalYear===2025&&x.fiscalQuarter===4);
+          if(ticker==='AAPL'){
+            if(Math.abs(annual?.basicEPS-7.49)>.03)
+              throw Error('Apple FY2025 SEC basic EPS expected 7.49, got '+annual?.basicEPS);
+            if(q?.basicEPS!==null && Math.abs(q.basicEPS-1.85)>.06)
+              throw Error('Apple Q4 basic EPS differs from disclosed 1.85: '+q?.basicEPS);
+          }
+          console.log(JSON.stringify({ticker,basicEPS:annual?.basicEPS,
+            q4BasicEPS:q?.basicEPS,q4Evidence:d.stockSplitAudit?.quarterFourBasicEPS?.estimatedCount}));
+          JS
+                then
+                  break
+                fi
+              fi
+              if [ "$attempt" = 10 ]; then echo "Preview validation failed for $ticker"; exit 1; fi
+              sleep 20
+            done
+          done
