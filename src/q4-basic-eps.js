@@ -38,7 +38,7 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
             ['10-K','10-K/A'].includes(e.form) && finite(e.val))
         : [{val:yr.basicEPS}]; // Compatibility for callers with no fact provenance.
       return annualValues.filter(e=>
-        plausible(yr.netIncome/source.val,e.val))
+        plausible(yr.netIncome/source.val,e.val)
       ).map(e=>({source,annualEPS:e.val}));
     });
     if(!compatible.length)continue;
