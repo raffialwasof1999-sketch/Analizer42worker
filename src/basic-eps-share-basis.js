@@ -5,7 +5,7 @@
  *
  * Derived Q4 values use their stated 10-K weighted-basic-share accession.
  */
-export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimatedQ4=[]){
+export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimatedQ4=[],resolveAnnualBasis=null){
   if(!Array.isArray(rows)||!graph||typeof resolveQuarterly!=='function')
     throw Error('Basic EPS normalization requires rows and SEC basis proof');
   const isNumeric=x=>typeof x==='number'&&Number.isFinite(x);
@@ -31,6 +31,26 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
       const chosen=matches.find(x=>isNumeric(graph.shareFactors?.[x.accn]))||matches[0];
       accn=chosen?.accn||null;
       f=graph.shareFactors?.[accn];
+    }
+    // A 10-Q need not overlap any 10-K in CompanyFacts, so graph-only
+    // matching leaves nearly all reported quarterly EPS unnecessarily blank.
+    // SEC annual basic shares can bridge that gap when the filing's share
+    // basis is graph-proven and the same quarter independently reconciles
+    // EPS * weighted basic shares to reported earnings. A split-straddling
+    // quarter produces a material share-count mismatch and is rejected.
+    if(!isNumeric(f) && !derived && typeof resolveAnnualBasis==='function'){
+      const proof=resolveAnnualBasis(row);
+      if(proof && proof.annualAccession &&
+        isNumeric(proof.annualShares) && proof.annualShares>0 &&
+        isNumeric(proof.quarterShares) && proof.quarterShares>0 &&
+        isNumeric(graph.shareFactors?.[proof.annualAccession]) &&
+        Math.abs(proof.quarterShares/proof.annualShares-1)<=0.10 &&
+        isNumeric(row.netIncome) &&
+        Math.abs(row.netIncome/proof.quarterShares-row.basicEPS)<=
+          Math.max(0.035,Math.abs(row.basicEPS)*0.06)){
+        f=graph.shareFactors[proof.annualAccession];
+        accn=proof.annualAccession;
+      }
     }
     if((graph.conflicts||[]).length||!isNumeric(f)||f<=0){
       copy.basicEPS=null;
