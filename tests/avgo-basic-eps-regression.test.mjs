@@ -110,3 +110,78 @@ test('latest interim FY can inherit matching verified prior annual share basis',
     ()=>[{accn:'unconnected-2026-quarter',val:2.75}],[],()=>proof);
   assert.equal(out.rows[0].basicEPS,2.75);
 });
+
+test('AVGO 2023 Q4 uses same-basis original Q3 rather than split-restated Q3',()=>{
+  const years=[{fiscalYear:2023,fiscalPeriodEnd:'2023-10-29',
+    netIncome:14082e6,basicEPS:3.39}]; // last-filing restated annual EPS
+  const q=[
+    {fiscalYear:2023,fiscalQuarter:1,fiscalPeriodEnd:'2023-01-29',
+      netIncome:3774e6,basicEPS:9.03,basicShares:418e6},
+    {fiscalYear:2023,fiscalQuarter:2,fiscalPeriodEnd:'2023-04-30',
+      netIncome:3481e6,basicEPS:8.39,basicShares:415e6},
+    {fiscalYear:2023,fiscalQuarter:3,fiscalPeriodEnd:'2023-07-30',
+      netIncome:3303e6,basicEPS:.80,basicShares:4.13e9},
+    {fiscalYear:2023,fiscalQuarter:4,fiscalPeriodEnd:'2023-10-29',
+      netIncome:3524e6,basicEPS:null}
+  ];
+  const f2023='0001730168-23-000096', f2024='0001730168-24-000139';
+  const shares=[
+    {start:'2022-10-31',end:'2023-10-29',
+      val:415e6,form:'10-K',accn:f2023,filed:'2023-12-14'},
+    {start:'2022-10-31',end:'2023-10-29',
+      val:4.149e9,form:'10-K',accn:f2024,filed:'2024-12-20'}
+  ];
+  const eps=[
+    {...shares[0],val:33.93},{...shares[1],val:3.39}
+  ];
+  for(const [idx,accn,posted,reported,n] of [
+    [0,'0001730168-23-000008','2023-03-08',9.03,418e6],
+    [1,'0001730168-23-000064','2023-06-07',8.39,415e6],
+    [2,'0001730168-23-000077','2023-09-06',8,413e6]]){
+    const current=q[idx];
+    const start=['2022-10-31','2023-01-30','2023-05-01'][idx];
+    const common={start,end:current.fiscalPeriodEnd,form:'10-Q',
+      filed:posted,accn};
+    shares.push({...common,val:n});
+    eps.push({...common,val:reported});
+  }
+  const result=deriveQ4BasicEPS(q,years,shares,eps);
+  assert.equal(result.estimatedCount,1);
+  assert.equal(result.findings[0].sourceAnnualAccession,f2023);
+  assert.equal(result.findings[0].estimationMethod,'SEC-basic-EPS-weighted-shares-common-earnings');
+  assert.ok(q[3].basicEPS>=8.40 && q[3].basicEPS<=8.60,q[3].basicEPS);
+  assert.equal(q[2].basicEPS,.8); // Do not edit source reported/restated quarter.
+});
+
+test('AVGO 2021 preferred dividends use basic common earnings rather than gross net income',()=>{
+  const years=[{fiscalYear:2021,fiscalPeriodEnd:'2021-10-31',
+    netIncome:6736e6,basicEPS:15.70}];
+  const original='0001730168-21-000153';
+  const q=[
+    {fiscalYear:2021,fiscalQuarter:1,fiscalPeriodEnd:'2021-01-31',
+      netIncome:1378e6,basicEPS:3.20,basicShares:407e6},
+    {fiscalYear:2021,fiscalQuarter:2,fiscalPeriodEnd:'2021-05-02',
+      netIncome:1493e6,basicEPS:3.46,basicShares:409e6},
+    {fiscalYear:2021,fiscalQuarter:3,fiscalPeriodEnd:'2021-08-01',
+      netIncome:1876e6,basicEPS:4.38,basicShares:411e6},
+    {fiscalYear:2021,fiscalQuarter:4,fiscalPeriodEnd:'2021-10-31',
+      netIncome:1989e6,basicEPS:null}
+  ];
+  const annual={start:'2020-11-02',end:'2021-10-31',
+    form:'10-K',filed:'2021-12-17',accn:original};
+  const shares=[{...annual,val:410e6}];
+  const eps=[{...annual,val:15.70}];
+  for(const [i,accn,start,reported,weighted] of [
+    [0,'0001730168-21-000045','2020-11-02',3.20,407e6],
+    [1,'0001730168-21-000116','2021-02-01',3.46,409e6],
+    [2,'0001730168-21-000123','2021-05-03',4.38,411e6]]){
+    const row={start,end:q[i].fiscalPeriodEnd,form:'10-Q',
+      accn,filed:'2021-09-09'};
+    shares.push({...row,val:weighted});
+    eps.push({...row,val:reported});
+  }
+  const result=deriveQ4BasicEPS(q,years,shares,eps);
+  assert.equal(result.estimatedCount,1);
+  assert.ok(q[3].basicEPS>4.5&&q[3].basicEPS<4.8,q[3].basicEPS);
+  assert.equal(result.findings[0].estimationMethod,'SEC-basic-EPS-weighted-shares-common-earnings');
+});
