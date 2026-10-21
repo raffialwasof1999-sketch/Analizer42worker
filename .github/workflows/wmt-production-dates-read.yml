@@ -61,3 +61,24 @@ jobs:
           if(!d.success || d.ticker!=='NFLX'||Math.abs(q3?.basicEPS-.60)>.015 || !(q4?.basicEPS>0))
             throw Error('NFLX split-crossing basic EPS has not been recovered in production');
           JS
+
+      - name: Read latest Netflix ROIC columns for safe sheet synchronization
+        run: |
+          curl --retry 2 --max-time 120 --fail-with-body -sS \
+            "https://analyzer42-sec.raffialwasof-1999.workers.dev/?ticker=NFLX&roicSnapshot=20261020" \
+            -o /tmp/nflx-roic-snapshot.json
+          node <<'JS'
+          const d=require('/tmp/nflx-roic-snapshot.json');
+          if(!d.success||d.ticker!=='NFLX'||d.schemaVersion!=='AA_SEC_V3')
+            throw Error('Unexpected Worker payload, not safe for sheet sync');
+          const snapshot={
+            annual:d.annualFinancials.map(r=>({
+              year:r.fiscalYear,short:r.shortTermDebt,long:r.longTermDebt,debt:r.totalDebt,
+              invested:r.investedCapital,average:r.averageInvestedCapital,roic:r.roic
+            })),
+            quarters:d.quarterlyFinancials.map(r=>({
+              end:r.fiscalPeriodEnd,debt:r.totalDebt,invested:r.investedCapital
+            }))
+          };
+          console.log('NFLX_ROIC_SNAPSHOT:'+JSON.stringify(snapshot));
+          JS
