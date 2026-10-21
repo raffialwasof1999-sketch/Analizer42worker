@@ -3,23 +3,32 @@
 Goal: keep the spreadsheet's existing Refresh flow and dashboard untouched, while managing its bound Apps Script source alongside the SEC Worker in GitHub.
 
 ## Status
-This is preparation only. No Apps Script source has been imported and **nothing is deployed** to the Google Apps Script project yet. Do not run an upload against an empty source folder.
+This is preparation only. The owner has supplied the target Script ID, but the project's identity, parent spreadsheet, and API permissions have not yet been verified through an authenticated Apps Script read. No Apps Script source has been imported and **nothing is deployed** to the Google Apps Script project yet. Do not run an upload against an empty source folder.
+
+## Target supplied by the owner
+- Script ID: `1OjO2rJxCB6jXC5BMeb-JxyvUx4pcdzwcJh16eHFzJIfGQvo3GJW8doab`
+- Intended parent: the existing Active Analyzer spreadsheet, `1ryLKPxrVoxSVhac7HpVR_l8ARSjn0E65DhTz082PlXY`.
+- This is an identifier, not an authorization credential. Confirm that an authenticated project metadata read returns this Script ID and the intended parent before importing or uploading code.
+- This document does not configure or activate a deployment workflow.
 
 ## First-time connection
-1. In the Active Analyzer Sheet, choose **Extensions > Apps Script**.
-2. In Apps Script, choose **Project Settings > IDs > Script ID**. Record the ID (not a password).
-3. Enable **Google Apps Script API** in the signed-in account's Apps Script settings if it is off.
-4. Back up the existing live Apps Script project before modifying it. The Google `clasp` CLI supports `clasp login` and `clasp clone <SCRIPT_ID>` / `clasp pull`; use this to put all live project files, including `appsscript.json`, in an `apps-script/` directory in the repository.
-5. Review the imported source for tokens, credentials, personal information, and other secrets before committing. Use Script Properties or GitHub Secrets as appropriate; don't commit OAuth tokens.
-6. Configure GitHub Actions authorization to the Apps Script API using a narrowly scoped authorized Google identity, with credentials stored in repository Secrets. Never paste OAuth credential JSON in a chat or source file.
-7. Only after comparing the imported project with the live Apps Script project and confirming the correct Script ID, enable a guarded, manually triggered deployment. Test on a nonproduction copy first.
+1. Script ID collection is complete. Do not create a replacement Apps Script project or spreadsheet.
+2. In the Google account that owns or can edit the existing Apps Script project, open **https://script.google.com/home/usersettings** and enable **Google Apps Script API** if it is off. This is an account-level Apps Script setting, not the project's gear-icon settings.
+3. Enabling that setting does not itself authorize GitHub or this assistant. Separately authorize Google's `clasp` tool on a trusted computer with `clasp login`. Only approve the intended Google application and permissions. API enablement alone must not be reported as a completed connection.
+4. Verify the target, then back up the complete live Apps Script project before modifying it. Use the Google `clasp` CLI's clone/pull operation in a new empty local directory, preserving every source file and `appsscript.json`. Keep the first unmodified backup outside the public repository.
+5. Review the imported source for tokens, credentials, personal information, and other secrets before committing it under `apps-script/`. This repository is public. Use Script Properties or GitHub Secrets as appropriate; never commit OAuth tokens. Ignore credential files before importing or committing source.
+6. Configure GitHub Actions authorization only after the source review. Google's documented clasp CI setup uses `CLASPRC_JSON` for the locally generated authorization and `CLASP_JSON` for the project mapping, stored in GitHub Actions Secrets. The owner must place credentials into the secure Secrets interface, not a chat, issue, source file, or workflow log. The Script ID supplied above does not replace this step.
+7. Before enabling any upload, compare the imported project with the live Apps Script project and verify the Script ID, full source, manifest, and intended parent. Start with a guarded, manually triggered deployment and test on a nonproduction copy first. Automatic updates are a later step after successful verification.
 
 ## Important guardrails
 - Google Sheets does not execute source directly from GitHub; changes must be uploaded to the bound Apps Script project through an authorized API or `clasp`.
 - `clasp push` replaces the remote Apps Script project content. Do not execute it before the full source backup and verification.
 - Existing Sheet dashboard and Refresh behavior must remain unchanged.
-- Maintain the refresh-only SEC importer; do not add long-term storage.
+- Maintain the refresh-only SEC importer; do not add long-term financial-data storage.
 - Keep the GitHub repository as source of truth after sync is validated, to prevent editor/GitHub divergence.
 - Script ID is configuration; OAuth refresh tokens and other credentials are secrets.
+- Neither API enablement nor recording an ID proves that a deployment is authorized or working.
 
-Reference: https://developers.google.com/apps-script/guides/clasp
+References:
+- https://developers.google.com/apps-script/guides/clasp
+- https://developers.google.com/apps-script/api/how-tos/enable
