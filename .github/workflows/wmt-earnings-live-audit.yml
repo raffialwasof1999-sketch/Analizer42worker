@@ -1,0 +1,62 @@
+name: Audit Walmart historical SEC earnings dates
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/index.js'
+      - 'src/sec-earnings-dates.js'
+      - '.github/workflows/wmt-earnings-live-audit.yml'
+jobs:
+  walmart:
+    if: github.head_ref == 'fix/sec-earnings-history-archives-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compare Walmart 2023 dates to live SEC submissions
+        run: |
+          node --input-type=module <<'JS'
+          import {strict as assert} from 'node:assert';
+          import {
+            filingRows,fullQuarterFilingHistory,assignQuarterDates
+          } from './src/sec-earnings-dates.js';
+          const cik='0000104169';
+          const userAgent='Analyzer42 Test Contact raffialwasof.1999@gmail.com';
+          const secRead=async url=>{
+            const r=await fetch(url,{headers:{
+              'User-Agent':userAgent,'Accept':'application/json'
+            }});
+            if(!r.ok)throw Error('SEC HTTP '+r.status+' for '+url);
+            return r.json();
+          };
+          const sub=await secRead('https://data.sec.gov/submissions/CIK'+cik+'.json');
+          assert.equal(Number(sub.cik),Number(cik));
+          const periods=[
+            {fiscalQuarter:1,fiscalPeriodEnd:'2023-04-30'},
+            {fiscalQuarter:2,fiscalPeriodEnd:'2023-07-31'},
+            {fiscalQuarter:3,fiscalPeriodEnd:'2023-10-31'},
+            {fiscalQuarter:4,fiscalPeriodEnd:'2024-01-31'}
+          ];
+          const recentOnly=periods.map(r=>({...r}));
+          assignQuarterDates(recentOnly,filingRows(sub.filings.recent));
+          const coverage=await fullQuarterFilingHistory(sub,periods,cik,secRead);
+          const all=periods.map(r=>({...r}));
+          assignQuarterDates(all,coverage.filings);
+          console.log(JSON.stringify({
+            archivesScanned:coverage.archivesScanned,
+            recent:recentOnly.map(r=>({
+              end:r.fiscalPeriodEnd,report:r.secFilingDate,earnings:r.earningsDisclosureDate
+            })),
+            full:all.map(r=>({
+              end:r.fiscalPeriodEnd,report:r.secFilingDate,earnings:r.earningsDisclosureDate
+            }))
+          },null,2));
+          assert.ok(all[0].secFilingDate,'Walmart 2023 April report must be found');
+          assert.equal(all[0].earningsDisclosureDate,'2023-05-18');
+          const oldGaps=recentOnly.filter(r=>!r.earningsDisclosureDate).length;
+          const newGaps=all.filter(r=>!r.earningsDisclosureDate).length;
+          assert.ok(newGaps<=oldGaps,'Archive lookup cannot reduce date coverage');
+          JS
