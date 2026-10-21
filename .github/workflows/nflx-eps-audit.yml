@@ -1,26 +1,17 @@
-name: Diagnose NFLX split-basis EPS gaps
+name: Test SEC split-crossing basic EPS recovery
 on:
   push:
     branches: [fix/nflx-basic-eps-basis-20261020]
 jobs:
-  audit:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
-      - name: Inspect NFLX SEC companyfacts for 2025 Q3 and FY
-        run: |
-          curl --retry 2 --max-time 120 -A "Analyzer42 historical financial research (contact: github.com/raffialwasof1999-sketch)" -sS -f "https://data.sec.gov/api/xbrl/companyfacts/CIK0001065280.json" -o /tmp/sec.json
-          node <<'JS'
-          const d=require('/tmp/sec.json');
-          const g=d.facts['us-gaap'];
-          const names=['EarningsPerShareBasic','WeightedAverageNumberOfSharesOutstandingBasic','EarningsPerShareDiluted','WeightedAverageNumberOfDilutedSharesOutstanding','NetIncomeLoss'];
-          for(const name of names){
-            const x=g[name];if(!x){console.log(name+':no concept');continue}
-            const list=(x.units['USD/shares']||x.units.shares||x.units.USD||[]).filter(r=>
-              r.end>='2025-09-30' && r.end<='2025-12-31' &&
-              ['10-K','10-Q','10-K/A','10-Q/A'].includes(r.form) &&
-              r.start>='2025-01-01' && (!r.filed || r.filed<='2026-10-20')
-            );
-            console.log(name+':'+JSON.stringify(list.slice(0,80)));
-          }
-          JS
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run all regression tests
+        run: npm test
+      - name: Syntax check Worker
+        run: node --check src/index.js
