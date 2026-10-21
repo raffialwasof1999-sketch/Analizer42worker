@@ -1,0 +1,106 @@
+name: Audit Walmart historical SEC earnings dates
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'src/index.js'
+      - 'src/sec-earnings-dates.js'
+      - '.github/workflows/wmt-earnings-live-audit.yml'
+jobs:
+  walmart:
+    if: github.head_ref == 'fix/sec-earnings-history-archives-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compare Walmart 2023 dates to live SEC submissions
+        run: |
+          node --input-type=module <<'JS'
+          import {strict as assert} from 'node:assert';
+          import {
+            filingRows,fullQuarterFilingHistory,assignQuarterDates
+          } from './src/sec-earnings-dates.js';
+          const cik='0000104169';
+          const userAgent='Analyzer42 Test Contact raffialwasof.1999@gmail.com';
+          const secRead=async url=>{
+            const r=await fetch(url,{headers:{
+              'User-Agent':userAgent,'Accept':'application/json'
+            }});
+            if(!r.ok)throw Error('SEC HTTP '+r.status+' for '+url);
+            return r.json();
+          };
+          const sub=await secRead('https://data.sec.gov/submissions/CIK'+cik+'.json');
+          assert.equal(Number(sub.cik),Number(cik));
+          const periods=[
+            {fiscalQuarter:1,fiscalPeriodEnd:'2023-04-30'},
+            {fiscalQuarter:2,fiscalPeriodEnd:'2023-07-31'},
+            {fiscalQuarter:3,fiscalPeriodEnd:'2023-10-31'},
+            {fiscalQuarter:4,fiscalPeriodEnd:'2024-01-31'}
+          ];
+          const recentOnly=periods.map(r=>({...r}));
+          assignQuarterDates(recentOnly,filingRows(sub.filings.recent));
+          const coverage=await fullQuarterFilingHistory(sub,periods,cik,secRead);
+          const all=periods.map(r=>({...r}));
+          assignQuarterDates(all,coverage.filings);
+          console.log(JSON.stringify({
+            archivesScanned:coverage.archivesScanned,
+            recent:recentOnly.map(r=>({
+              end:r.fiscalPeriodEnd,report:r.secFilingDate,earnings:r.earningsDisclosureDate
+            })),
+            full:all.map(r=>({
+              end:r.fiscalPeriodEnd,report:r.secFilingDate,earnings:r.earningsDisclosureDate
+            }))
+          },null,2));
+          assert.ok(all[0].secFilingDate,'Walmart 2023 April report must be found');
+          assert.equal(all[0].earningsDisclosureDate,'2023-05-18');
+          const oldGaps=recentOnly.filter(r=>!r.earningsDisclosureDate).length;
+          const newGaps=all.filter(r=>!r.earningsDisclosureDate).length;
+          assert.ok(newGaps<=oldGaps,'Archive lookup cannot reduce date coverage');
+          JS
+
+  verify-production:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify Cloudflare production now includes archived WMT 2023 disclosure
+        env:
+          PROD: https://analyzer42-sec.raffialwasof-1999.workers.dev
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            echo "Checking Cloudflare production deployment attempt $attempt"
+            if curl --fail-with-body --silent --show-error --max-time 90 \
+              "$PROD/?ticker=WMT" -o /tmp/wmt-earnings-production.json &&
+              node <<'JS'
+          const fs=require('node:fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/wmt-earnings-production.json','utf8'));
+          if(!d.success)throw Error('WMT Worker failed: '+d.error);
+          if(d.schemaVersion!=='AA_SEC_V3')
+            throw Error('Changed Apps Script schema');
+          const quarter=d.quarterlyFinancials.find(x=>x.fiscalPeriodEnd==='2023-04-30');
+          if(quarter?.earningsDisclosureDate!=='2023-05-18')
+            throw Error('WMT 2023 earnings date not yet deployed: '+
+              JSON.stringify(quarter?.earningsDisclosureDate));
+          const dates=d.coverage?.earningsDates;
+          if(!dates || dates.archivesScanned<1 ||
+              !Number.isInteger(dates.verifiedItem202Dates))
+            throw Error('Archived date coverage diagnostics missing');
+          console.log('Cloudflare production WMT verified',JSON.stringify({
+            date:quarter.earningsDisclosureDate,archives:dates.archivesScanned,
+            verifiedQuarterDates:dates.verifiedItem202Dates,
+            quarters:dates.quarters
+          }));
+          JS
+            then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo 'Cloudflare Worker production has not deployed archived earnings dates'
+          exit 1
