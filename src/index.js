@@ -1,3 +1,4 @@
+import { secTotalDebt } from './sec-debt.js';
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
@@ -83,8 +84,12 @@ const TAGS = {
   cash: ['CashAndCashEquivalentsAtCarryingValue'],
   totalAssets: ['Assets'],
   totalLiabilities: ['Liabilities'],
-  shortTermDebt: ['ShortTermBorrowings','ShortTermDebtCurrent'],
-  longTermDebt: ['LongTermDebtNoncurrent'],
+  shortTermDebt: ['ShortTermDebtCurrent','ShortTermBorrowings'],
+  longTermDebt: [
+    'LongTermDebtNoncurrent',
+    'LongTermDebtAndFinanceLeaseObligationsNoncurrent',
+    'LongTermDebtAndCapitalLeaseObligationsNoncurrent'
+  ],
   currentPortionLongTermDebt: [
     'LongTermDebtCurrent',
     'LongTermDebtAndCapitalLeaseObligationsCurrent',
@@ -214,21 +219,7 @@ function chooseRecord(records,end,kind,forms) {
 const val = (records,end,kind,forms) =>
   chooseRecord(records,end,kind,forms)?.val ?? null;
 
-function debt(get) {
-  const explicit = get('totalDebt');
-
-  if (n(explicit) !== null) return explicit;
-
-  const long = get('longTermDebt');
-  const short = get('shortTermDebt');
-  const current = get('currentPortionLongTermDebt');
-
-  if (n(long) === null || n(current) === null) {
-    return null;
-  }
-
-  return long + current + (n(short) !== null ? short : 0);
-}
+const debt = secTotalDebt;
 
 function decorate(r,older) {
   r.freeCashFlow = minus(r.operatingCashFlow,r.capitalExpenditures);
