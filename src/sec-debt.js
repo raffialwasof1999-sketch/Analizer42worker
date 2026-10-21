@@ -46,7 +46,7 @@ export function auditedAbsentCurrentDebtProof({cik,periodEnd,form}={},noncurrent
     noncurrent:evidence.noncurrent,
     source:evidence.source,
     form:evidence.form,
-    status:'filing-verified-zero-current-debt'
+    status:'audited-zero-current-debt'
   };
 }
 
