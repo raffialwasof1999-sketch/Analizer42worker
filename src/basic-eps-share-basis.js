@@ -40,20 +40,25 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
     // quarter produces a material share-count mismatch and is rejected.
     if(!isNumeric(f) && !derived && typeof resolveAnnualBasis==='function'){
       const proof=resolveAnnualBasis(row);
+      const shareRatio=proof?.shareRatio||proof?.annualShares/proof?.quarterShares;
+      const splitRatio=(graph.changedBasisEdges||[]).flatMap(edge=>
+        [edge.shareFactor,1/edge.shareFactor]).find(r=>
+        isNumeric(r)&&r>0 && isNumeric(shareRatio)&&
+        Math.abs(shareRatio/r-1)<=.05);
+      const basisFactor=isNumeric(shareRatio) && Math.abs(shareRatio-1)<=.10
+        ? 1 : splitRatio;
       if(proof && proof.annualAccession &&
         isNumeric(proof.annualShares) && proof.annualShares>0 &&
         isNumeric(proof.quarterShares) && proof.quarterShares>0 &&
         isNumeric(graph.shareFactors?.[proof.annualAccession]) &&
-        isNumeric(proof.annualShares/proof.quarterShares) &&
-        proof.annualShares/proof.quarterShares>0 &&
+        isNumeric(basisFactor)&&basisFactor>0 &&
         isNumeric(row.netIncome) &&
         // GAAP gross income may exceed earnings available to common
         // shareholders due to preferred dividends; the annual bridge already
         // matched basic EPS and weighted basic shares by SEC accession.
         Math.abs(row.netIncome/proof.quarterShares-row.basicEPS)<=
           Math.max(0.035,Math.abs(row.netIncome/proof.quarterShares)*.30)){
-        f=graph.shareFactors[proof.annualAccession]*
-          (proof.shareRatio||proof.annualShares/proof.quarterShares);
+        f=graph.shareFactors[proof.annualAccession]*basisFactor;
         accn=proof.annualAccession;
       }
     }
