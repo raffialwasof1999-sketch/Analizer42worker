@@ -59,11 +59,12 @@ test('raw-first observations include unknown tags, units and all SEC metadata in
  const original=structuredClone(data);
  const p1=secRawFactsPage(data,{offset:0,limit:2});
  const p2=secRawFactsPage(data,{offset:2,limit:2});
- const full=[...p1.observations,...p2.observations];
+ const p3=secRawFactsPage(data,{offset:4,limit:2});
+ const full=[...p1.observations,...p2.observations,...p3.observations];
  assert.equal(p1.totalObservations,5);
  assert.equal(p2.totalObservations,5);
- assert.equal(full.length,4);
- assert.equal(secRawFactsPage(data,{offset:4,limit:2}).observations.length,1);
+ assert.equal(full.length,5);
+ assert.equal(p3.observations.length,1);
  const unknown=full.find(x=>x.tag==='UnfamiliarRevenueAdjustment');
  assert.equal(unknown.reported.val,-7);
  assert.equal(unknown.reported.frame,'CY2025');
