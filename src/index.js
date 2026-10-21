@@ -1,4 +1,5 @@
-import { secTotalDebt } from './sec-debt.js';
+import { secTotalDebt, auditedAbsentCurrentDebtProof } from './sec-debt.js';
+import { financialInputArchive, rollingRoicCoverage } from './sec-input-coverage.js';
 import { secNopat } from './sec-roic.js';
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
@@ -295,7 +296,16 @@ function buildAnnual(map,ends,cik=null) {
       r[k] = get(k);
     }
 
-    r.totalDebt = debt(get,{cik,periodEnd:end,form:'10-K'});
+    const debtContext={cik,periodEnd:end,form:'10-K'};
+    r.totalDebt = debt(get,debtContext);
+    const proof=auditedAbsentCurrentDebtProof(debtContext,get('longTermDebt'));
+    if(proof && r.totalDebt===proof.noncurrent &&
+       get('shortTermDebt')===null &&
+       get('currentPortionLongTermDebt')===null) {
+      // Retain verified source inputs separately from calculated ROIC.
+      r.longTermDebt=r.longTermDebt??proof.noncurrent;
+      r.debtEvidence=proof;
+    }
     return r;
   });
 
@@ -403,7 +413,15 @@ function buildQuarterly(map,ends,cik=null) {
         r[k] = get(k);
       }
 
-      r.totalDebt = debt(get,{cik,periodEnd:end,form:isQ4?'10-K':'10-Q'});
+      const debtContext={cik,periodEnd:end,form:isQ4?'10-K':'10-Q'};
+      r.totalDebt = debt(get,debtContext);
+      const proof=auditedAbsentCurrentDebtProof(debtContext,get('longTermDebt'));
+      if(proof && r.totalDebt===proof.noncurrent &&
+         get('shortTermDebt')===null &&
+         get('currentPortionLongTermDebt')===null) {
+        r.longTermDebt=r.longTermDebt??proof.noncurrent;
+        r.debtEvidence=proof;
+      }
       decorate(r,null);
       rows.push(r);
     }
@@ -911,8 +929,19 @@ export default {
         exchange:index>=0?(sub.exchanges?.[index]||''):'',
         annualFinancials:finalAnnual,
         quarterlyFinancials:finalQuarterly,
+        // Additive source-input snapshots for future metrics without
+        // changing the existing 32/25-column Google Sheets import.
+        financialInputArchive:{
+          annual:financialInputArchive(annualFinancials,ANNUAL_FIELDS),
+          quarterly:financialInputArchive(quarters,Object.keys(TAGS))
+        },
         stockSplitAudit,
         coverage:{
+          rollingROIC:{
+            oneYear:rollingRoicCoverage(quarters,1),
+            fiveYear:rollingRoicCoverage(quarters,20),
+            tenYear:rollingRoicCoverage(quarters,40)
+          },
           earningsDates:earningsDateCoverage(quarters,earningsHistory.archivesScanned),
           annualYears:annualFinancials.length,
           reportedQuarters:quarterlyFinancials.length,
