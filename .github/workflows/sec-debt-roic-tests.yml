@@ -1,0 +1,61 @@
+name: Verify SEC debt and ROIC coverage
+on:
+  push:
+    branches: [main, fix/roic-debt-coverage-20261020]
+    paths:
+      - 'src/index.js'
+      - 'src/sec-debt.js'
+      - 'tests/sec-debt.test.mjs'
+      - '.github/workflows/sec-debt-roic-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/index.js'
+      - 'src/sec-debt.js'
+      - 'tests/sec-debt.test.mjs'
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Full regression suite
+        run: npm test
+      - name: Worker syntax
+        run: node --check src/index.js
+  production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Verify deployed Netflix SEC debt and ROIC
+        run: |
+          set -euo pipefail
+          for try in $(seq 1 15); do
+            curl --retry 1 --max-time 90 -sS --fail-with-body \
+              "https://analyzer42-sec.raffialwasof-1999.workers.dev/?ticker=NFLX&debtAudit=20261020" \
+              -o /tmp/nflx-roic.json || true
+            if node <<'JS'
+          const fs=require('node:fs');
+          const j=JSON.parse(fs.readFileSync('/tmp/nflx-roic.json','utf8'));
+          if(!j.success||j.ticker!=='NFLX')process.exit(1);
+          const r=j.quarterlyFinancials.find(x=>x.fiscalPeriodEnd==='2026-06-30');
+          if(!r || r.totalDebt!==14309306000 || !Number.isFinite(r.investedCapital))process.exit(1);
+          const a=j.annualFinancials[0];
+          if(!Number.isFinite(a.roic)||a.roic<=0)process.exit(1);
+          console.log('NFLX_PRODUCTION_ROIC:'+JSON.stringify({
+            period:r.fiscalPeriodEnd,totalDebt:r.totalDebt,investedCapital:r.investedCapital,
+            latestAnnualROIC:a.roic
+          }));
+          JS
+            then
+              exit 0
+            fi
+            echo "Production debt not updated yet, attempt $try"
+            sleep 20
+          done
+          echo "The GitHub change has not reached live Cloudflare Worker"
+          exit 1
