@@ -1,20 +1,26 @@
 name: Diagnose NFLX split-basis EPS gaps
 on:
   push:
-    branches:
-      - fix/nflx-basic-eps-basis-20261020
+    branches: [fix/nflx-basic-eps-basis-20261020]
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: Inspect production Netflix EPS and split audit
+      - name: Inspect NFLX SEC companyfacts for 2025 Q3 and FY
         run: |
-          curl --retry 2 --max-time 120 --fail-with-body -sS "https://analyzer42-sec.raffialwasof-1999.workers.dev/?ticker=NFLX" -o /tmp/nflx.json
+          curl --retry 2 --max-time 120 -A "Analyzer42 historical financial research (contact: github.com/raffialwasof1999-sketch)" -sS -f "https://data.sec.gov/api/xbrl/companyfacts/CIK0001065280.json" -o /tmp/sec.json
           node <<'JS'
-          const j=require('/tmp/nflx.json');
-          if(!j.success || j.ticker!=='NFLX') throw Error('Invalid production response');
-          console.log('AUDIT:'+JSON.stringify(j.stockSplitAudit));
-          console.log('ROWS:'+JSON.stringify(j.quarterlyFinancials.slice(0,12).map(q=>({period:q.fiscalPeriodEnd,fy:q.fiscalYear,fq:q.fiscalQuarter,basic:q.basicEPS,diluted:q.dilutedEPS,net:q.netIncome,share:q.dilutedShares}))));
-          console.log('ANNUAL:'+JSON.stringify(j.annualFinancials.slice(0,5).map(q=>({period:q.fiscalPeriodEnd,basic:q.basicEPS,net:q.netIncome}))));
+          const d=require('/tmp/sec.json');
+          const g=d.facts['us-gaap'];
+          const names=['EarningsPerShareBasic','WeightedAverageNumberOfSharesOutstandingBasic','EarningsPerShareDiluted','WeightedAverageNumberOfDilutedSharesOutstanding','NetIncomeLoss'];
+          for(const name of names){
+            const x=g[name];if(!x){console.log(name+':no concept');continue}
+            const list=(x.units['USD/shares']||x.units.shares||x.units.USD||[]).filter(r=>
+              r.end>='2025-09-30' && r.end<='2025-12-31' &&
+              ['10-K','10-Q','10-K/A','10-Q/A'].includes(r.form) &&
+              r.start>='2025-01-01' && (!r.filed || r.filed<='2026-10-20')
+            );
+            console.log(name+':'+JSON.stringify(list.slice(0,80)));
+          }
           JS
