@@ -1,22 +1,26 @@
 name: Verify SEC debt and ROIC coverage
 on:
   push:
-    branches: [main, fix/roic-debt-coverage-20261020]
+    branches: [main, fix/roic-historical-proven-debt-tax-20261020]
     paths:
       - 'src/index.js'
       - 'src/sec-debt.js'
+      - 'src/sec-roic.js'
       - 'tests/sec-debt.test.mjs'
+      - 'tests/audited-historical-roic.test.mjs'
       - '.github/workflows/sec-debt-roic-tests.yml'
   pull_request:
     branches: [main]
     paths:
       - 'src/index.js'
       - 'src/sec-debt.js'
+      - 'src/sec-roic.js'
       - 'tests/sec-debt.test.mjs'
+      - 'tests/audited-historical-roic.test.mjs'
 jobs:
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,31 +35,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 9
     steps:
-      - name: Verify deployed Netflix SEC debt and ROIC
+      - name: Verify live Netflix 10-year ROIC and audited zero-current debt
         run: |
           set -euo pipefail
           for try in $(seq 1 15); do
             curl --retry 1 --max-time 90 -sS --fail-with-body \
-              "https://analyzer42-sec.raffialwasof-1999.workers.dev/?ticker=NFLX&debtAudit=20261020" \
+              "https://analyzer42-sec.raffialwasof-1999.workers.dev/?ticker=NFLX&debtAudit=20261020-roic10" \
               -o /tmp/nflx-roic.json || true
             if node <<'JS'
           const fs=require('node:fs');
-          const j=JSON.parse(fs.readFileSync('/tmp/nflx-roic.json','utf8'));
-          if(!j.success||j.ticker!=='NFLX')process.exit(1);
-          const r=j.quarterlyFinancials.find(x=>x.fiscalPeriodEnd==='2026-06-30');
-          if(!r || r.totalDebt!==14309306000 || !Number.isFinite(r.investedCapital))process.exit(1);
-          const a=j.annualFinancials[0];
-          if(!Number.isFinite(a.roic)||a.roic<=0)process.exit(1);
-          console.log('NFLX_PRODUCTION_ROIC:'+JSON.stringify({
-            period:r.fiscalPeriodEnd,totalDebt:r.totalDebt,investedCapital:r.investedCapital,
-            latestAnnualROIC:a.roic
+          let j;try {j=JSON.parse(fs.readFileSync('/tmp/nflx-roic.json','utf8'))}
+          catch {process.exit(1)}
+          if(!j.success||j.ticker!=='NFLX'||j.schemaVersion!=='AA_SEC_V3')process.exit(1);
+          const rows=j.annualFinancials;
+          const selected=[2025,2024,2023,2022,2021,2020,2019,2018,2017,2016];
+          if(!selected.every(y=>rows.some(r=>r.fiscalYear===y&&Number.isFinite(r.roic)&&r.roic>0)))process.exit(1);
+          const expected={'2018':10360058000,'2017':6499432000,
+            '2016':3364311000,'2015':2371362000};
+          if(!Object.entries(expected).every(([year,amount])=>
+            rows.some(r=>r.fiscalYear===Number(year)&&r.totalDebt===amount&&Number.isFinite(r.investedCapital))))process.exit(1);
+          const t=rows.find(r=>r.fiscalYear===2017);
+          if(!(t.incomeTaxExpense<0&&t.nopat>t.operatingIncome))process.exit(1);
+          console.log('NFLX_ROIC_10YEAR_VERIFIED:'+JSON.stringify({
+            tenYearAverage:selected.reduce((s,y)=>s+rows.find(r=>r.fiscalYear===y).roic,0)/10,
+            years:rows.filter(r=>selected.includes(r.fiscalYear)).map(r=>({year:r.fiscalYear,roic:r.roic,invested:r.investedCapital})),
+            source:'deployed SEC Worker'
           }));
           JS
-            then
-              exit 0
-            fi
-            echo "Production debt not updated yet, attempt $try"
+            then exit 0; fi
+            echo "Awaiting Cloudflare deployment attempt $try"
             sleep 20
           done
-          echo "The GitHub change has not reached live Cloudflare Worker"
+          echo "Cloudflare production did not match verified ten-year annual data"
           exit 1
