@@ -30,3 +30,22 @@ jobs:
           }))));
           console.log('WMT_DATES_END');
           JS
+      - name: Audit live basic EPS CSV feeds used by Google Sheets
+        run: |
+          set -e
+          base="https://analyzer42-sec.raffialwasof-1999.workers.dev/"
+          for type in quarterly annual; do
+            file="/tmp/wmt-${type}.csv"
+            curl --retry 2 --retry-delay 2 --max-time 100 --fail-with-body --show-error --silent \
+              "${base}?ticker=WMT&basicEpsCsv=${type}&revision=3" -o "$file"
+            echo "FEED_${type}_START"
+            node -e '
+              const fs=require("fs");
+              const f=fs.readFileSync(process.argv[1],"utf8");
+              const lines=f.trim().split(/\r?\n/);
+              const nums=lines.filter(s=>Number.isFinite(Number(s)));
+              console.log(JSON.stringify({length:lines.length,nonempty:lines.filter(x=>x!=="NA").length,numeric:nums.length,first:lines.slice(0,6),last:lines.slice(-4)}));
+              if(lines.length<(process.argv[2]==="quarterly"?50:15) || nums.length<10)process.exitCode=1;
+            ' "$file" "$type"
+            echo "FEED_${type}_END"
+          done
