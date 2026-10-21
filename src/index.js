@@ -1,5 +1,6 @@
 import { secTotalDebt, auditedAbsentCurrentDebtProof } from './sec-debt.js';
 import { financialInputArchive, rollingRoicCoverage } from './sec-input-coverage.js';
+import { secFactsCatalog, secRawConcept } from './sec-raw-facts.js';
 import { secNopat } from './sec-roic.js';
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
@@ -654,6 +655,50 @@ export default {
         throw Error('SEC CIK mismatch');
       }
 
+      // Read-only raw SEC views, deliberately separate from normalized
+      // spreadsheet-facing arrays. Company Facts excludes custom issuer tags.
+      const rawCatalog = url.searchParams.get('secCatalog');
+      const rawFact = url.searchParams.get('secFact');
+      if (rawCatalog !== null || rawFact !== null) {
+        if (rawCatalog !== null && rawFact !== null)
+          return json({success:false,error:'Choose one SEC source view'},400);
+        const parseBounded=(name,fallback,max,min=0)=>{
+          const value=url.searchParams.get(name);
+          if(value===null)return fallback;
+          if(!/^[0-9]+$/.test(value))throw new RangeError('Invalid '+name);
+          const n=Number(value);
+          if(!Number.isSafeInteger(n)||n<min||n>max)
+            throw new RangeError('Invalid '+name);
+          return n;
+        };
+        try {
+          if(rawCatalog!==null) {
+            if(rawCatalog!=='1')
+              return json({success:false,error:'Use secCatalog=1'},400);
+            return json({
+              success:true,ticker,cik,
+              ...secFactsCatalog(facts,{
+                page:parseBounded('page',1,100000,1),
+                pageSize:parseBounded('pageSize',100,200,1),
+                search:url.searchParams.get('search')||''
+              })
+            });
+          }
+          const concept=secRawConcept(facts,{
+            selector:rawFact,
+            offset:parseBounded('offset',0,10000000),
+            limit:parseBounded('limit',100,200,1)
+          });
+          if(!concept)
+            return json({success:false,error:'SEC concept not reported for ticker'},404);
+          return json({success:true,ticker,cik,...concept});
+        } catch(e) {
+          if(e instanceof TypeError || e instanceof RangeError)
+            return json({success:false,error:e.message},400);
+          throw e;
+        }
+      }
+
       const gaap = facts.facts?.['us-gaap'];
 
       if (!gaap) {
@@ -931,6 +976,12 @@ export default {
         quarterlyFinancials:finalQuarterly,
         // Additive source-input snapshots for future metrics without
         // changing the existing 32/25-column Google Sheets import.
+        sourceFactsAccess:{
+          secCatalog:'?ticker='+encodeURIComponent(ticker)+'&secCatalog=1',
+          secFactExample:'?ticker='+encodeURIComponent(ticker)+'&secFact=us-gaap:Assets',
+          scope:'SEC standardized Company Facts; custom issuer tags require individual filing extraction',
+          persistentArchive:false
+        },
         financialInputArchive:{
           annual:financialInputArchive(annualFinancials,ANNUAL_FIELDS),
           quarterly:financialInputArchive(quarters,Object.keys(TAGS))
