@@ -295,7 +295,7 @@ function buildAnnual(map,ends,cik=null) {
       r[k] = get(k);
     }
 
-    r.totalDebt = debt(get,{cik,periodEnd:end,form:isQ4?'10-K':'10-Q'});
+    r.totalDebt = debt(get,{cik,periodEnd:end,form:'10-K'});
     return r;
   });
 
