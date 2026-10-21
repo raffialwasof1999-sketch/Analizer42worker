@@ -1,13 +1,15 @@
 name: Verify SEC debt and ROIC coverage
 on:
   push:
-    branches: [main, fix/roic-historical-proven-debt-tax-20261020]
+    branches: [main, fix/sec-quarterly-debt-coverage-rolling-roic-20261020]
     paths:
       - 'src/index.js'
       - 'src/sec-debt.js'
       - 'src/sec-roic.js'
+      - 'src/sec-input-coverage.js'
       - 'tests/sec-debt.test.mjs'
       - 'tests/audited-historical-roic.test.mjs'
+      - 'tests/quarterly-debt-coverage.test.mjs'
       - '.github/workflows/sec-debt-roic-tests.yml'
   pull_request:
     branches: [main]
@@ -15,8 +17,10 @@ on:
       - 'src/index.js'
       - 'src/sec-debt.js'
       - 'src/sec-roic.js'
+      - 'src/sec-input-coverage.js'
       - 'tests/sec-debt.test.mjs'
       - 'tests/audited-historical-roic.test.mjs'
+      - 'tests/quarterly-debt-coverage.test.mjs'
 jobs:
   tests:
     runs-on: ubuntu-latest
@@ -56,6 +60,15 @@ jobs:
             rows.some(r=>r.fiscalYear===Number(year)&&r.totalDebt===amount&&Number.isFinite(r.investedCapital))))process.exit(1);
           const t=rows.find(r=>r.fiscalYear===2017);
           if(!(t.incomeTaxExpense<0&&t.nopat>t.operatingIncome))process.exit(1);
+          const quarterDebt={'2019-09-30':12425746000,
+            '2018-06-30':8342067000,'2017-03-31':3365431000,
+            '2016-03-31':2372218000,'2015-09-30':2400000000};
+          if(!Object.entries(quarterDebt).every(([date,v])=>
+            j.quarterlyFinancials.some(q=>q.fiscalPeriodEnd===date&&
+              q.totalDebt===v&&Number.isFinite(q.investedCapital))))process.exit(1);
+          if(!j.coverage?.rollingROIC?.tenYear?.ready||
+            j.coverage.rollingROIC.tenYear.observations!==40 ||
+            j.financialInputArchive?.quarterly?.length<44)process.exit(1);
           console.log('NFLX_ROIC_10YEAR_VERIFIED:'+JSON.stringify({
             tenYearAverage:selected.reduce((s,y)=>s+rows.find(r=>r.fiscalYear===y).roic,0)/10,
             years:rows.filter(r=>selected.includes(r.fiscalYear)).map(r=>({year:r.fiscalYear,roic:r.roic,invested:r.investedCapital})),
