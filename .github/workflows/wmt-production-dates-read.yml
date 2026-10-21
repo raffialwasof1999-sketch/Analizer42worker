@@ -82,3 +82,26 @@ jobs:
           };
           console.log('NFLX_ROIC_SNAPSHOT:'+JSON.stringify(snapshot));
           JS
+
+      - name: Read-only Netflix historical ROIC sync snapshot
+        run: |
+          curl --retry 2 --max-time 120 --fail-with-body -sS \
+            "https://analyzer42-sec.raffialwasof-1999.workers.dev/?ticker=NFLX&roicSync=20261020-v2" \
+            -o /tmp/roic10-sync.json
+          node <<'JS'
+          const j=require('/tmp/roic10-sync.json');
+          if(!j.success||j.ticker!=='NFLX'||j.schemaVersion!=='AA_SEC_V3')
+            throw Error('Refuse unknown source/schema');
+          const expected=new Set([2016,2017,2018,2019,2020,2021,2022,2023,2024,2025]);
+          if(!j.annualFinancials.filter(r=>expected.has(r.fiscalYear)).every(r=>Number.isFinite(r.roic)))
+            throw Error('Ten-year ROIC source incomplete');
+          const annual=j.annualFinancials.map(r=>({
+            year:r.fiscalYear,roic:r.roic,short:r.shortTermDebt,
+            long:r.longTermDebt,debt:r.totalDebt,invested:r.investedCapital,
+            average:r.averageInvestedCapital,nopat:r.nopat
+          }));
+          const quarters=j.quarterlyFinancials.map(r=>({
+            date:r.fiscalPeriodEnd,debt:r.totalDebt,invested:r.investedCapital
+          }));
+          console.log('ROIC10_SYNC_ROWS:'+JSON.stringify({annual,quarters}));
+          JS
