@@ -1,4 +1,5 @@
 import { secTotalDebt } from './sec-debt.js';
+import { secNopat } from './sec-roic.js';
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
@@ -226,15 +227,7 @@ function decorate(r,older) {
   r.profitMargin = ratio(r.netIncome,r.revenue);
   r.freeCashFlowMargin = ratio(r.freeCashFlow,r.revenue);
 
-  const taxRate = ratio(r.incomeTaxExpense,r.incomeBeforeTax);
-
-  r.nopat =
-    n(taxRate) !== null &&
-    taxRate >= 0 &&
-    taxRate <= 1 &&
-    n(r.operatingIncome) !== null
-      ? r.operatingIncome*(1-taxRate)
-      : null;
+  r.nopat = secNopat(r);
 
   const eq =
     n(r.stockholdersEquity) !== null
@@ -286,7 +279,7 @@ function periods(map) {
   return (result.length ? result : from('netIncome')).slice(0,21);
 }
 
-function buildAnnual(map,ends) {
+function buildAnnual(map,ends,cik=null) {
   const forms = ['10-K','10-K/A'];
 
   const raw = ends.map(end => {
@@ -302,7 +295,7 @@ function buildAnnual(map,ends) {
       r[k] = get(k);
     }
 
-    r.totalDebt = debt(get);
+    r.totalDebt = debt(get,{cik,periodEnd:end,form:isQ4?'10-K':'10-Q'});
     return r;
   });
 
@@ -322,7 +315,7 @@ function buildAnnual(map,ends) {
   );
 }
 
-function buildQuarterly(map,ends) {
+function buildQuarterly(map,ends,cik=null) {
   const formsQ = ['10-Q','10-Q/A'];
   const formsY = ['10-K','10-K/A'];
 
@@ -410,7 +403,7 @@ function buildQuarterly(map,ends) {
         r[k] = get(k);
       }
 
-      r.totalDebt = debt(get);
+      r.totalDebt = debt(get,{cik,periodEnd:end,form:isQ4?'10-K':'10-Q'});
       decorate(r,null);
       rows.push(r);
     }
@@ -657,8 +650,8 @@ export default {
           k,fieldFacts(gaap,k)
         ]));
         const fiscalEnds=periods(shareMap);
-        const annual=buildAnnual(shareMap,fiscalEnds);
-        const quarterly=buildQuarterly(shareMap,fiscalEnds);
+        const annual=buildAnnual(shareMap,fiscalEnds,cik);
+        const quarterly=buildQuarterly(shareMap,fiscalEnds,cik);
         const basisEarningsHistory = await fullQuarterFilingHistory(sub,quarterly,cik,secFetch);
         assignQuarterDates(quarterly,basisEarningsHistory.filings);
         coverShares(quarterly,facts);
@@ -711,8 +704,8 @@ export default {
           k,fieldFacts(gaap,k)
         ]));
         const splitEnds=periods(splitMap);
-        const originalAnnual=buildAnnual(splitMap,splitEnds);
-        const originalQuarter=buildQuarterly(splitMap,splitEnds);
+        const originalAnnual=buildAnnual(splitMap,splitEnds,cik);
+        const originalQuarter=buildQuarterly(splitMap,splitEnds,cik);
         const previewEarningsHistory = await fullQuarterFilingHistory(sub,originalQuarter,cik,secFetch);
         assignQuarterDates(originalQuarter,previewEarningsHistory.filings);
         coverShares(originalQuarter,facts);
@@ -799,8 +792,8 @@ export default {
       );
 
       const ends = periods(map);
-      const annualFinancials = buildAnnual(map,ends);
-      const quarters = buildQuarterly(map,ends);
+      const annualFinancials = buildAnnual(map,ends,cik);
+      const quarters = buildQuarterly(map,ends,cik);
 
       const earningsHistory = await fullQuarterFilingHistory(sub,quarters,cik,secFetch);
       assignQuarterDates(quarters,earningsHistory.filings);
