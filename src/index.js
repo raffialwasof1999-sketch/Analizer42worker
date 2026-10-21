@@ -665,7 +665,7 @@ export default {
         const parseBounded=(name,fallback,max,min=0)=>{
           const value=url.searchParams.get(name);
           if(value===null)return fallback;
-          if(!/^\\d+$/.test(value))throw new RangeError('Invalid '+name);
+          if(!/^[0-9]+$/.test(value))throw new RangeError('Invalid '+name);
           const n=Number(value);
           if(!Number.isSafeInteger(n)||n<min||n>max)
             throw new RangeError('Invalid '+name);
