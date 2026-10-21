@@ -3,6 +3,7 @@ import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
 import { deriveQ4BasicEPS } from './q4-basic-eps.js';
 import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './basic-eps-share-basis.js';
+import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage } from './sec-earnings-dates.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -431,64 +432,6 @@ function buildQuarterly(map,ends) {
   return rows.slice(0,60);
 }
 
-function submissionFilings(sub) {
-  const rec = sub?.filings?.recent || {};
-  const out = [];
-
-  for (let i=0;i<(rec.form||[]).length;i++) {
-    if (!validDate(rec.filingDate?.[i])) continue;
-
-    out.push({
-      form:rec.form[i],
-      filed:rec.filingDate[i],
-      end:rec.reportDate?.[i]||'',
-      items:rec.items?.[i]||'',
-      accession:rec.accessionNumber?.[i]||''
-    });
-  }
-
-  return out;
-}
-
-function enrichQuarterDates(rows,sub) {
-  const filings = submissionFilings(sub);
-
-  for (const r of rows) {
-    const forms = r.fiscalQuarter===4
-      ? ['10-K','10-K/A']
-      : ['10-Q','10-Q/A'];
-
-    const matches = filings
-      .filter(f =>
-        forms.includes(f.form) &&
-        f.end===r.fiscalPeriodEnd
-      )
-      .sort((a,b)=>a.filed.localeCompare(b.filed));
-
-    const report = matches[0];
-
-    r.secFilingDate = report?.filed || null;
-    r._accession = report?.accession || null;
-    r.earningsDisclosureDate = null;
-
-    if (!report) continue;
-
-    const filings802 = filings.filter(f =>
-      f.form==='8-K' &&
-      /(?:^|[^\d])2\.02(?:$|[^\d])/.test(f.items) &&
-      dayCount(r.fiscalPeriodEnd,f.filed)>=0 &&
-      dayCount(r.fiscalPeriodEnd,f.filed)<=105 &&
-      dayCount(f.filed,report.filed)>=0 &&
-      dayCount(f.filed,report.filed)<=35
-    );
-
-    filings802.sort((a,b)=>b.filed.localeCompare(a.filed));
-
-    // Date of SEC earnings-results 8-K filing, if verified.
-    r.earningsDisclosureDate = filings802[0]?.filed || null;
-  }
-}
-
 function coverShares(rows,sec) {
   const outstanding =
     sec.facts?.dei?.EntityCommonStockSharesOutstanding?.units?.shares || [];
@@ -724,7 +667,8 @@ export default {
         const fiscalEnds=periods(shareMap);
         const annual=buildAnnual(shareMap,fiscalEnds);
         const quarterly=buildQuarterly(shareMap,fiscalEnds);
-        enrichQuarterDates(quarterly,sub);
+        const basisEarningsHistory = await fullQuarterFilingHistory(sub,quarterly,cik,secFetch);
+        assignQuarterDates(quarterly,basisEarningsHistory.filings);
         coverShares(quarterly,facts);
         const findFact=(row,metric,kind,forms)=>{
           const list=(shareMap[metric]||[]).filter(r=>
@@ -777,7 +721,8 @@ export default {
         const splitEnds=periods(splitMap);
         const originalAnnual=buildAnnual(splitMap,splitEnds);
         const originalQuarter=buildQuarterly(splitMap,splitEnds);
-        enrichQuarterDates(originalQuarter,sub);
+        const previewEarningsHistory = await fullQuarterFilingHistory(sub,originalQuarter,cik,secFetch);
+        assignQuarterDates(originalQuarter,previewEarningsHistory.filings);
         coverShares(originalQuarter,facts);
         const candidateSources=(row,metric,kind,forms)=>{
           const all=(splitMap[metric]||[]).filter(r=>
@@ -865,7 +810,8 @@ export default {
       const annualFinancials = buildAnnual(map,ends);
       const quarters = buildQuarterly(map,ends);
 
-      enrichQuarterDates(quarters,sub);
+      const earningsHistory = await fullQuarterFilingHistory(sub,quarters,cik,secFetch);
+      assignQuarterDates(quarters,earningsHistory.filings);
       coverShares(quarters,facts);
       const q4BasicEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,map.basicShares,map.basicEPS);
 
@@ -977,6 +923,7 @@ export default {
         quarterlyFinancials:finalQuarterly,
         stockSplitAudit,
         coverage:{
+          earningsDates:earningsDateCoverage(quarters,earningsHistory.archivesScanned),
           annualYears:annualFinancials.length,
           reportedQuarters:quarterlyFinancials.length,
           latestFourConsecutive:
