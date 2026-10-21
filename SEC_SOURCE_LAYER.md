@@ -38,3 +38,27 @@ Missing and distinct concepts are **not** silently mapped or converted to zero.
 
 Verification: `npm test`; a deployed Cloudflare endpoint needs separate
 production verification after merging.
+
+## Raw-first refresh extension
+
+The Worker downloads the selected issuer's entire SEC Company Facts JSON on
+each ticker refresh *before* matching the dashboard's known tags. It does not
+discard unrecognized standardized concepts in that source response.
+
+- `?ticker=AAPL&secRawFacts=1&offset=0&limit=100`: page through every
+  reported observation across all standard taxonomies and units, including
+  concepts not currently used in the Analyzer. Each page includes the
+  original SEC fact object, taxonomy, tag, label, and unit.
+- The normal refresh response additionally supplies `sourceFactsSummary`
+  with SEC concept counts and a distinction between known and unmapped tags.
+  Source pagination is exposed in `sourceFactsAccess.secRawFacts`.
+- The dashboard-facing `annualFinancials` and `quarterlyFinancials` arrays,
+  headers, SEC-refresh trigger and Sheets formatting remain unchanged.
+
+**Scope remains explicitly incomplete:** Company Facts omits issuer-specific
+extensions, some dimensional data and narrative disclosures. The next stage
+must use a safe SEC filing-by-filing XBRL/iXBRL extractor and validate
+contexts/units/definitions before using extension facts in calculations.
+This raw-first route is not a universal original-filing parser, does not
+promise that every SEC disclosure has been imported, and adds no long-term
+storage. Missing or conflicting facts must not be converted to zero.

@@ -90,3 +90,85 @@ export function secRawConcept(companyFacts,{selector,offset=0,limit=100}={}) {
     observations:entries.slice(offset,offset+limit)
   };
 }
+
+/**
+ * Source-first view of ALL observations in Company Facts. Tag matching is
+ * deliberately not used to filter the source data. The supplied record is
+ * preserved byte-for-byte as an object, including SEC filing metadata.
+ *
+ * Paginate rather than adding tens of thousands of records to the dashboard
+ * response. This is a live, nonpersistent view of the SEC data fetched for
+ * the selected ticker, not a company-specific storage cache.
+ */
+export function secRawFactsPage(companyFacts,{offset=0,limit=100}={}) {
+  if(!Number.isSafeInteger(offset)||offset<0||offset>100_000_000 ||
+     !validPage(limit,200))
+    throw new RangeError('Invalid SEC facts page.');
+
+  const taxonomies=Object.keys(companyFacts?.facts||{}).sort();
+  const observations=[];
+  let total=0;
+  let concepts=0;
+  for(const taxonomy of taxonomies) {
+    const tags=companyFacts.facts[taxonomy]||{};
+    for(const tag of Object.keys(tags).sort()) {
+      concepts++;
+      const concept=tags[tag]||{};
+      for(const unit of Object.keys(concept.units||{}).sort()) {
+        const records=concept.units[unit];
+        if(!Array.isArray(records))continue;
+        const start=total,end=total+records.length;
+        if(end>offset && start<offset+limit) {
+          const a=Math.max(0,offset-start);
+          const b=Math.min(records.length,offset+limit-start);
+          for(const reported of records.slice(a,b)) {
+            observations.push({
+              taxonomy,tag,unit,
+              label:concept.label??null,
+              description:concept.description??null,
+              reported
+            });
+          }
+        }
+        total=end;
+      }
+    }
+  }
+  return {
+    scope:'All SEC Company Facts observations, prior to metric matching',
+    source:'https://data.sec.gov/api/xbrl/companyfacts/',
+    includesIssuerExtensions:false,
+    includesDimensionalFacts:false,
+    persistentArchive:false,
+    offset,limit,concepts,totalObservations:total,
+    hasMore:offset+limit<total,observations
+  };
+}
+
+/**
+ * Report coverage of the raw inputs compared with the current *known* tag
+ * aliases. An unmapped concept remains available; it is never dropped from
+ * the source collection or incorrectly treated as absent.
+ */
+export function secSourceSummary(companyFacts,mapping={}) {
+  const taxonomies=Object.keys(companyFacts?.facts||{});
+  const all=allConcepts(companyFacts);
+  const gaapTags=new Set(Object.keys(companyFacts?.facts?.['us-gaap']||{}));
+  const known=new Set(Object.values(mapping).flat());
+  const mapped=[...gaapTags].filter(tag=>known.has(tag));
+  return {
+    stage:'raw-sec-companyfacts-retrieved-before-metric-mapping',
+    source:'https://data.sec.gov/api/xbrl/companyfacts/',
+    taxonomies,
+    rawConcepts:all.length,
+    rawObservations:all.reduce((sum,concept)=>sum+concept.reportedFacts,0),
+    gaapConcepts:gaapTags.size,
+    knownGaapTagConcepts:mapped.length,
+    otherGaapConcepts:gaapTags.size-mapped.length,
+    otherConceptsPreserved:true,
+    includesIssuerExtensions:false,
+    includesDimensionalFacts:false,
+    persistentArchive:false,
+    note:'Counts describe the source response, not financial metric coverage. Custom and dimensional facts require original filing inspection.'
+  };
+}

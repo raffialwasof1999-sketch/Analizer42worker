@@ -52,3 +52,24 @@ test('raw SEC routes reject invalid pagination and absent concepts',async()=>{
    assert.equal(notFound.status,404);
  } finally{globalThis.fetch=original;}
 });
+
+test('source-first all-facts endpoint exposes raw SEC observations with no dashboard rows',async()=>{
+ mock();
+ try {
+   const resp=await worker.fetch(new Request('https://test/?ticker=DEMO&secRawFacts=1&limit=1&offset=1'));
+   assert.equal(resp.status,200);
+   const body=await resp.json();
+   assert.equal(body.scope,'All SEC Company Facts observations, prior to metric matching');
+   assert.equal(body.totalObservations,2);
+   assert.equal(body.observations.length,1);
+   assert.equal(body.observations[0].tag,'Assets');
+   assert.equal(body.observations[0].reported.accn,'0001');
+   assert.equal(body.annualFinancials,undefined);
+   assert.equal(body.includesIssuerExtensions,false);
+   assert.equal(body.persistentArchive,false);
+   const bad=await worker.fetch(new Request('https://test/?ticker=DEMO&secRawFacts=1&limit=0'));
+   assert.equal(bad.status,400);
+   const both=await worker.fetch(new Request('https://test/?ticker=DEMO&secRawFacts=1&secCatalog=1'));
+   assert.equal(both.status,400);
+ } finally{globalThis.fetch=original;}
+});

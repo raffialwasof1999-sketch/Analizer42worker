@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {secFactsCatalog,secRawConcept} from '../src/sec-raw-facts.js';
+import {secFactsCatalog,secRawConcept,secRawFactsPage,secSourceSummary} from '../src/sec-raw-facts.js';
 
 const facts={facts:{
   'us-gaap':{
@@ -47,4 +47,43 @@ test('rejects invalid selectors and unbounded pagination',()=>{
  assert.throws(()=>secRawConcept(facts,{selector:'../../something'}),TypeError);
  assert.throws(()=>secRawConcept(facts,{selector:'us-gaap:Assets',limit:1000}),RangeError);
  assert.throws(()=>secFactsCatalog(facts,{pageSize:10000}),RangeError);
+});
+
+test('raw-first observations include unknown tags, units and all SEC metadata in stable pages',()=>{
+ const data=structuredClone(facts);
+ data.facts['us-gaap'].UnfamiliarRevenueAdjustment={
+   label:'Unknown adjustment',units:{USD:[
+     {val:-7,start:'2025-01-01',end:'2025-12-31',
+      accn:'0003',form:'10-K',filed:'2026-02-15',frame:'CY2025'}
+   ]}};
+ const original=structuredClone(data);
+ const p1=secRawFactsPage(data,{offset:0,limit:2});
+ const p2=secRawFactsPage(data,{offset:2,limit:2});
+ const p3=secRawFactsPage(data,{offset:4,limit:2});
+ const full=[...p1.observations,...p2.observations,...p3.observations];
+ assert.equal(p1.totalObservations,5);
+ assert.equal(p2.totalObservations,5);
+ assert.equal(full.length,5);
+ assert.equal(p3.observations.length,1);
+ const unknown=full.find(x=>x.tag==='UnfamiliarRevenueAdjustment');
+ assert.equal(unknown.reported.val,-7);
+ assert.equal(unknown.reported.frame,'CY2025');
+ assert.equal(unknown.reported.accn,'0003');
+ assert.equal(unknown.unit,'USD');
+ assert.equal(p1.persistentArchive,false);
+ assert.equal(p1.includesIssuerExtensions,false);
+ assert.deepEqual(data,original);
+});
+test('source summary reports unmatched concepts without treating them as unavailable',()=>{
+ const summary=secSourceSummary(facts,{revenue:['Revenues']});
+ assert.equal(summary.rawConcepts,3);
+ assert.equal(summary.rawObservations,4);
+ assert.equal(summary.knownGaapTagConcepts,1);
+ assert.equal(summary.otherGaapConcepts,1);
+ assert.equal(summary.otherConceptsPreserved,true);
+ assert.equal(summary.includesDimensionalFacts,false);
+});
+test('rejects unbounded all-facts pagination',()=>{
+ assert.throws(()=>secRawFactsPage(facts,{limit:201}),RangeError);
+ assert.throws(()=>secRawFactsPage(facts,{offset:-1}),RangeError);
 });

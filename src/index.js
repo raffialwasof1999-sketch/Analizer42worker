@@ -1,6 +1,6 @@
 import { secTotalDebt, auditedAbsentCurrentDebtProof } from './sec-debt.js';
 import { financialInputArchive, rollingRoicCoverage } from './sec-input-coverage.js';
-import { secFactsCatalog, secRawConcept } from './sec-raw-facts.js';
+import { secFactsCatalog, secRawConcept, secRawFactsPage, secSourceSummary } from './sec-raw-facts.js';
 import { secNopat } from './sec-roic.js';
 import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateCandidates, secRestatementEvidence, previewProvenPerShare, auditedSplitRows } from './sec-splits.js';
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
@@ -659,8 +659,9 @@ export default {
       // spreadsheet-facing arrays. Company Facts excludes custom issuer tags.
       const rawCatalog = url.searchParams.get('secCatalog');
       const rawFact = url.searchParams.get('secFact');
-      if (rawCatalog !== null || rawFact !== null) {
-        if (rawCatalog !== null && rawFact !== null)
+      const rawEverything = url.searchParams.get('secRawFacts');
+      if (rawCatalog !== null || rawFact !== null || rawEverything !== null) {
+        if ([rawCatalog,rawFact,rawEverything].filter(v=>v!==null).length!==1)
           return json({success:false,error:'Choose one SEC source view'},400);
         const parseBounded=(name,fallback,max,min=0)=>{
           const value=url.searchParams.get(name);
@@ -681,6 +682,17 @@ export default {
                 page:parseBounded('page',1,100000,1),
                 pageSize:parseBounded('pageSize',100,200,1),
                 search:url.searchParams.get('search')||''
+              })
+            });
+          }
+          if(rawEverything!==null) {
+            if(rawEverything!=='1')
+              return json({success:false,error:'Use secRawFacts=1'},400);
+            return json({
+              success:true,ticker,cik,
+              ...secRawFactsPage(facts,{
+                offset:parseBounded('offset',0,100000000),
+                limit:parseBounded('limit',100,200,1)
               })
             });
           }
@@ -976,7 +988,9 @@ export default {
         quarterlyFinancials:finalQuarterly,
         // Additive source-input snapshots for future metrics without
         // changing the existing 32/25-column Google Sheets import.
+        sourceFactsSummary:secSourceSummary(facts,TAGS),
         sourceFactsAccess:{
+          secRawFacts:'?ticker='+encodeURIComponent(ticker)+'&secRawFacts=1&offset=0&limit=100',
           secCatalog:'?ticker='+encodeURIComponent(ticker)+'&secCatalog=1',
           secFactExample:'?ticker='+encodeURIComponent(ticker)+'&secFact=us-gaap:Assets',
           scope:'SEC standardized Company Facts; custom issuer tags require individual filing extraction',
