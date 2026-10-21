@@ -46,7 +46,7 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
         isNumeric(r)&&r>0 && isNumeric(shareRatio)&&
         Math.abs(shareRatio/r-1)<=.05);
       const basisFactor=isNumeric(shareRatio) && Math.abs(shareRatio-1)<=.10
-        ? 1 : splitRatio;
+        ? 1 : (isNumeric(proof?.shareRatio)?splitRatio:undefined);
       if(proof && proof.annualAccession &&
         isNumeric(proof.annualShares) && proof.annualShares>0 &&
         isNumeric(proof.quarterShares) && proof.quarterShares>0 &&
