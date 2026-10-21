@@ -40,18 +40,25 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
     // quarter produces a material share-count mismatch and is rejected.
     if(!isNumeric(f) && !derived && typeof resolveAnnualBasis==='function'){
       const proof=resolveAnnualBasis(row);
+      const shareRatio=proof?.shareRatio||proof?.annualShares/proof?.quarterShares;
+      const splitRatio=(graph.changedBasisEdges||[]).flatMap(edge=>
+        [edge.shareFactor,1/edge.shareFactor]).find(r=>
+        isNumeric(r)&&r>0 && isNumeric(shareRatio)&&
+        Math.abs(shareRatio/r-1)<=.05);
+      const basisFactor=isNumeric(shareRatio) && Math.abs(shareRatio-1)<=.10
+        ? 1 : (isNumeric(proof?.shareRatio)?splitRatio:undefined);
       if(proof && proof.annualAccession &&
         isNumeric(proof.annualShares) && proof.annualShares>0 &&
         isNumeric(proof.quarterShares) && proof.quarterShares>0 &&
         isNumeric(graph.shareFactors?.[proof.annualAccession]) &&
-        Math.abs(proof.quarterShares/proof.annualShares-1)<=0.10 &&
+        isNumeric(basisFactor)&&basisFactor>0 &&
         isNumeric(row.netIncome) &&
         // GAAP gross income may exceed earnings available to common
         // shareholders due to preferred dividends; the annual bridge already
         // matched basic EPS and weighted basic shares by SEC accession.
         Math.abs(row.netIncome/proof.quarterShares-row.basicEPS)<=
           Math.max(0.035,Math.abs(row.netIncome/proof.quarterShares)*.30)){
-        f=graph.shareFactors[proof.annualAccession];
+        f=graph.shareFactors[proof.annualAccession]*basisFactor;
         accn=proof.annualAccession;
       }
     }
@@ -104,13 +111,21 @@ export function findMatchingAnnualBasicEPSBasis(quarter,annual,epsFacts,sharesFa
       r.end===e.end && finite(r.val)&&r.val>0 &&
       ['10-K','10-K/A'].includes(r.form));
     if(!share)continue;
-    const shareDifference=Math.abs(share.val/quarter.basicShares-1);
-    if(shareDifference>.10 || !closeEPS(annual.netIncome/share.val,e.val))continue;
+    const shareRatio=share.val/quarter.basicShares;
+    const verifiedSplitRatios=(graph.changedBasisEdges||[]).flatMap(edge=>
+      [edge.shareFactor,1/edge.shareFactor]).filter(finite);
+    const sameBasis=Math.abs(shareRatio-1)<=.10;
+    const splitBasis=verifiedSplitRatios.some(r=>
+      r>0 && Math.abs(shareRatio/r-1)<=.05);
+    if(!(sameBasis||splitBasis) || !closeEPS(annual.netIncome/share.val,e.val))continue;
+    const shareDifference=Math.abs(shareRatio-(sameBasis?1:verifiedSplitRatios.find(r=>
+      r>0 && Math.abs(shareRatio/r-1)<=.05)));
     compatible.push({annualAccession:e.accn,annualShares:share.val,
-      quarterShares:quarter.basicShares,shareDifference});
+      quarterShares:quarter.basicShares,shareDifference,shareRatio});
   }
   compatible.sort((a,b)=>a.shareDifference-b.shareDifference);
   const best=compatible[0];
   return best?{annualAccession:best.annualAccession,
-    annualShares:best.annualShares,quarterShares:best.quarterShares}:null;
+    annualShares:best.annualShares,quarterShares:best.quarterShares,
+    shareRatio:best.shareRatio}:null;
 }
