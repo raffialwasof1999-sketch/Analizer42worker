@@ -2,6 +2,7 @@ import { splitAudit, secSplitFilingCandidates, detectSplitStatements, splitDateC
 import { inspectSplitFilingBatch } from './sec-corporate-actions.js';
 import { buildSECShareBasisGraph, normalizeUsingSECShareGraph } from './sec-share-basis.js';
 import { deriveQ4BasicEPS } from './q4-basic-eps.js';
+import { recoverSplitCrossingQ4BasicEPS } from './split-crossing-q4-basic-eps.js';
 import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './basic-eps-share-basis.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage } from './sec-earnings-dates.js';
 
@@ -865,8 +866,12 @@ export default {
           row.fiscalQuarter===4?['10-K','10-K/A']:['10-Q','10-Q/A']),
         q4BasicEPSEvidence.findings,annualSharesProof
       );
-      const finalQuarterly=(autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials)
+      const preliminaryQuarterly=(autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials)
         .map((row,i)=>({...row,basicEPS:basicHistorical.rows[i].basicEPS}));
+      const q4SplitRecovery=recoverSplitCrossingQ4BasicEPS(
+        preliminaryQuarterly,quarters,finalAnnual,map.basicEPS,map.basicShares,basisGraph
+      );
+      const finalQuarterly=q4SplitRecovery.rows;
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
       // Script writes only the older 31/26 columns, so basic EPS needs an
       // independent column feed. 'NA' preserves row positions in sparse data.
@@ -892,6 +897,7 @@ export default {
         unavailableCount:basicHistorical.unavailableCount
       };
       stockSplitAudit.quarterFourBasicEPS=q4BasicEPSEvidence;
+      stockSplitAudit.splitCrossingQ4BasicEPS=q4SplitRecovery.findings;
       stockSplitAudit.companyFactsNormalization={
         method:basisGraph.method,
         anchorAccession:basisGraph.anchorAccession,
