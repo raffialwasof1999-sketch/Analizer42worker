@@ -49,3 +49,15 @@ jobs:
             ' "$file" "$type"
             echo "FEED_${type}_END"
           done
+
+      - name: Check live Netflix split-crossing Q3 and Q4 EPS
+        run: |
+          curl --retry 2 --max-time 120 --fail-with-body -sS "https://analyzer42-sec.raffialwasof-1999.workers.dev/?ticker=NFLX" -o /tmp/nflx-check.json
+          node <<'JS'
+          const d=require('/tmp/nflx-check.json');
+          const q3=d.quarterlyFinancials.find(q=>q.fiscalPeriodEnd==='2025-09-30');
+          const q4=d.quarterlyFinancials.find(q=>q.fiscalPeriodEnd==='2025-12-31');
+          console.log('NFLX_SPLIT_PRODUCTION:'+JSON.stringify({q3:q3?.basicEPS,q4:q4?.basicEPS,sourceQ4:d.stockSplitAudit?.splitCrossingQ4BasicEPS||[],retrievedAt:d.retrievedAt}));
+          if(!d.success || d.ticker!=='NFLX'||Math.abs(q3?.basicEPS-.60)>.015 || !(q4?.basicEPS>0))
+            throw Error('NFLX split-crossing basic EPS has not been recovered in production');
+          JS
