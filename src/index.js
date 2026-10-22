@@ -73,7 +73,9 @@ const TAGS = {
   dilutedEPS: ['EarningsPerShareDiluted'],
   basicEPS: ['EarningsPerShareBasic'],
   basicShares: ['WeightedAverageNumberOfSharesOutstandingBasic'],
-  dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding'],
+  // Issuers without dilutive securities may tag one combined count.
+  dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding',
+    'WeightedAverageNumberOfShareOutstandingBasicAndDiluted'],
   dividendsPaid: ['PaymentsOfDividends','PaymentsOfDividendsCommonStock'],
   dividendsPerShare: [
     'CommonStockDividendsPerShareDeclared',

@@ -43,6 +43,14 @@ for(const ticker of TICKERS){
     r.ttmFreeCashFlowBlank=blank(q.slice(0,4),'freeCashFlow');
     r.q20FreeCashFlowBlank=blank(q.slice(0,20),'freeCashFlow');
     r.latestDilutedShares=finite(q[0]?.dilutedShares);
+    if(!r.latestDilutedShares&&q[0]){
+      // Which share-count tags SEC holds for the latest quarter end.
+      const gaap=(await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${d.cik}.json`,
+        {headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}})).json()).facts?.['us-gaap']||{};
+      r.latestShareTags=Object.entries(gaap).filter(([t])=>/Shares?Outstanding|ShareOutstanding/.test(t))
+        .flatMap(([t,c])=>Object.values(c.units||{}).flat().filter(x=>x.end===q[0].fiscalPeriodEnd)
+          .map(x=>`${t}:${x.form}:${x.start||''}:${x.val}`)).slice(0,6);
+    }
     r.a10Blank=['revenue','netIncome','dilutedEPS','freeCashFlow'].flatMap(k=>
       blank(a10,k).map(y=>k+':'+y));
     // Mixed split basis or wrong column: diluted EPS should sit at 80-102%
@@ -105,7 +113,7 @@ const problems=r=>[
   r.q20FreeCashFlowBlank?.length&&r.q20FreeCashFlowBlank.length+' of 20 quarters lack FCF',
   r.q24BasicEPSBlank?.length&&r.q24BasicEPSBlank.length+' lack basic EPS',
   (r.q24RevenueBlank?.length||r.q24NetIncomeBlank?.length)&&'revenue/net income gaps',
-  r.latestDilutedShares===false&&'latest diluted shares blank',
+  r.latestDilutedShares===false&&'latest diluted shares blank'+(r.latestShareTags?' [SEC has: '+(r.latestShareTags.join(', ')||'none')+']':''),
   r.a10Blank?.length&&r.a10Blank.length+' annual gaps ('+r.a10Blank.slice(0,4)+')',
   r.epsMismatch?.length&&'diluted vs basic mismatch '+r.epsMismatch.slice(0,3),
   r.overSubrequestLimit&&'over Cloudflare subrequest limit ('+r.subrequests+')'
