@@ -146,7 +146,9 @@ async function main() {
   });
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
-  if (summary.startsWith('WARNING')) console.log('::warning title=Apps Script drift::' + summary);
+  // Annotations stay visible on the pull request and commit.
+  console.log(summary.startsWith('WARNING') ? '::warning title=Apps Script drift::' + summary
+    : '::notice title=Apps Script::' + summary);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
