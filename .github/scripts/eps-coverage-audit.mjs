@@ -47,6 +47,30 @@ for(const ticker of TICKERS){
     r.roicBlank=Object.fromEntries(['operatingIncome','incomeTaxExpense','incomeBeforeTax','investedCapital']
       .map(k=>[k,blank(q.slice(0,k==='investedCapital'?21:20),k).length]).filter(([,n])=>n));
     r.evBlank=['totalDebt','cash'].filter(k=>!finite(q[0]?.[k]));
+    // For each remaining ROIC/EV input gap: the first quarter missing it and
+    // the tags SEC holds at that date.
+    const probes={
+      investedCapital:[/^(StockholdersEquity\w*|DebtCurrent|LongTermDebt\w*|ShortTermBorrowings|CommercialPaper|OtherShortTermBorrowings|DebtInstrumentCarryingAmount|DebtLongtermAndShorttermCombinedAmount|CashAndCashEquivalentsAtCarryingValue)$/,true],
+      cash:[/^(Cash\w*)$/,true],
+      incomeBeforeTax:[/BeforeIncomeTax/,false],
+      operatingIncome:[/^(OperatingIncomeLoss|InterestExpense\w*|InterestAndDebtExpense|IncomeLossFromContinuingOperationsBeforeIncomeTaxes\w*)$/,false]
+    };
+    const gaps=Object.entries(probes).map(([k,[re,instant]])=>{
+      const row=(k==='cash'?q.slice(0,1):q.slice(0,21)).find(x=>!finite(x[k]));
+      return row&&[k,row,re,instant];}).filter(Boolean);
+    if(gaps.length){
+      const gaap=(await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${d.cik}.json`,
+        {headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}})).json()).facts?.['us-gaap']||{};
+      const short=t=>t.replace('StockholdersEquity','SE').replace('LongTermDebt','LTD').replace('CashAndCashEquivalentsAtCarryingValue','Cash')
+        .replace('IncomeLossFromContinuingOperationsBeforeIncomeTaxes','PretaxCO').replace('InterestExpense','IntExp');
+      r.inputProbe=gaps.map(([k,row,re,instant])=>{
+        const comp=k==='investedCapital'?` [SE=${finite(row.stockholdersEquity)} debt=${finite(row.totalDebt)} cash=${finite(row.cash)}]`:'';
+        const tags=Object.entries(gaap).filter(([t])=>re.test(t)).flatMap(([t,c])=>Object.values(c.units||{}).flat()
+          .filter(x=>x.end===row.fiscalPeriodEnd&&(instant?!x.start:!!x.start)&&/^10-[KQ]/.test(x.form)).slice(0,1)
+          .map(x=>`${short(t)}=${(x.val/1e9).toFixed(2)}`));
+        return `${k}@${row.fiscalPeriodEnd}${comp}: ${tags.join(', ')||'none'}`;
+      });
+    }
     if(r.evBlank.length&&q[0]){
       const gaap=(await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${d.cik}.json`,
         {headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}})).json()).facts?.['us-gaap']||{};
@@ -84,6 +108,7 @@ for(const ticker of TICKERS){
     const audit=d.stockSplitAudit||{};
     r.q4DilutedEstimated=(audit.quarterFourDilutedEPS?.findings||[]).length;
     r.overSubrequestLimit=calls>SUBREQUEST_LIMIT;
+    r.blankReasons=d.blankReasons||[];
     // Free cash flow = operating cash flow - capital expenditures. When it is
     // missing, say which half is missing and which tags SEC holds for it.
     const fcfGap=q.slice(0,20).find(x=>!finite(x.freeCashFlow));
@@ -160,8 +185,15 @@ const lines=results.map(r=>{const p=problems(r);
 const clean=results.filter(r=>!problems(r).length).length;
 const summary=`${clean}/${results.length} tickers complete`;
 console.log(summary+'\n'+lines.join('\n'));
+// The sheet's "Data Notes" text for a representative sample.
+for(const t of ['AAPL','XOM','JPM','BRK-B','ORCL','META','ADBE','MCD','NKE','PLTR']){
+  const r=results.find(x=>x.ticker===t); if(!r?.blankReasons)continue;
+  console.log(`::warning title=Blank reasons ${t}::${r.blankReasons.map(x=>x.metric+': '+x.reason).join('%0A').replace(/::/g,'; ').slice(0,3900)||'none'}`);
+}
+const probe=results.filter(r=>r.inputProbe).map(r=>`${r.ticker}: ${r.inputProbe.join(' | ')}`);
+for(let i=0;false&&i<probe.length;i+=6)console.log(`::notice title=ROIC input probe ${i/6+1}::${probe.slice(i,i+6).join('%0A').replace(/::/g,'; ').slice(0,3900)}`);
 const bal=results.filter(r=>r.balanceTags).map(r=>`${r.ticker} blank:${r.evBlank}%0A  ${r.balanceTags.join(', ')||'none'}`);
-if(bal.length)console.log(`::notice title=Debt and cash tags::${bal.join('%0A').replace(/::/g,'; ')}`);
+if(false&&bal.length)console.log(`::notice title=Debt and cash tags::${bal.join('%0A').replace(/::/g,'; ')}`);
 const fcf=results.filter(r=>r.fcfMissing).map(r=>`${r.ticker}: missing ${r.fcfMissing}%0A  SEC: ${r.fcfTags.join(', ')||'none'}`);
 if(fcf.length)console.log(`::notice title=FCF gap detail::${fcf.join('%0A').replace(/::/g,'; ')}`);
 const detail=results.filter(r=>r.epsGapDetail?.length).map(r=>r.ticker+'%0A  '+r.epsGapDetail.join('%0A  '));

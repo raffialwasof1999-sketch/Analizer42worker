@@ -47,3 +47,26 @@ test('no capital spending line (banks) leaves free cash flow blank, not equal to
   assert.equal(d.annualFinancials[0].capitalExpenditures,null);
   assert.equal(d.annualFinancials[0].freeCashFlow,null);
 });
+
+test('no operating income line: EBIT from pretax income plus interest expense',async()=>{
+  const d=await run({...base,
+    IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest:unit('USD',[...annual(130e9),...ytd([32e9,66e9,99e9])]),
+    InterestExpense:unit('USD',[...annual(4e9),...ytd([1e9,2e9,3e9])])});
+  assert.equal(d.annualFinancials[0].operatingIncome,134e9);
+  assert.equal(d.quarterlyFinancials.find(q=>q.fiscalPeriodEnd==='2025-06-28').operatingIncome,34e9);
+});
+
+test('EBIT from net interest income when no interest expense line (Nike)',async()=>{
+  const d=await run({...base,
+    IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest:unit('USD',annual(130e9)),
+    InterestIncomeExpenseNonoperatingNet:unit('USD',annual(2e9))});
+  assert.equal(d.annualFinancials[0].operatingIncome,128e9);
+});
+
+test('banks get no EBIT substitute',async()=>{
+  const d=await run({...base,RevenuesNetOfInterestExpense:unit('USD',annual(400e9)),
+    IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest:unit('USD',annual(130e9)),
+    InterestExpense:unit('USD',annual(40e9))});
+  assert.equal(d.annualFinancials[0].operatingIncome,null);
+  assert.match(d.blankReasons.find(r=>r.metric==='Free Cash Flow (TTM)').reason,/Banks/);
+});

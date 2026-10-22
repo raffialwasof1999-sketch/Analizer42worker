@@ -64,3 +64,13 @@ test('ambiguous LongTermDebt with DebtCurrent needs the carrying amount (Tesla v
 test('a combined long- and short-term total is used directly (GE)',()=>{
   assert.equal(run({totalDebt:19.33*B,debtCurrent:2.33*B,longTermDebt:16.99*B}),19.33*B);
 });
+
+const runCtx=(o,ctx)=>secTotalDebt(key=>Object.prototype.hasOwnProperty.call(o,key)?o[key]:null,ctx);
+test('noncurrent only counts as total when no current debt was filed nearby (Meta 10-Qs)',()=>{
+  assert.equal(runCtx({longTermDebt:58.75*B},{noCurrentDebtNearby:true}),58.75*B);
+  assert.equal(runCtx({longTermDebt:58.75*B},{noCurrentDebtNearby:false}),null);
+});
+test('carrying amount confirms a sum within 2% (Tesla Q1 2024)',()=>{
+  assert.equal(run({longTermDebtTotal:2.74*B,debtCurrent:2.13*B,debtCarrying:4.90*B}),4.87*B);
+  assert.equal(run({longTermDebtTotal:4.80*B,debtCurrent:2.13*B,debtCarrying:4.90*B}),null); // LTD was the total
+});
