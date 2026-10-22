@@ -23,7 +23,9 @@ function tables(html) {
 }
 // Parsing an exhibit is the costly step (Cloudflare caps worker CPU time),
 // and the same document is queried for many quarters, so each document's
-// income-statement tables are parsed once and cached for the invocation.
+// income-statement tables are parsed once. The cache is emptied when each
+// recovery run ends: module state outlives a request inside a Cloudflare
+// isolate, and retained documents would exhaust its 128 MB memory limit.
 const parsedCache=new Map();
 function statements(html) {
   if(parsedCache.has(html)) return parsedCache.get(html);
@@ -59,7 +61,7 @@ function statements(html) {
     }
     out.push({rows,dated});
   }
-  if(parsedCache.size>=16) parsedCache.delete(parsedCache.keys().next().value);
+  if(parsedCache.size>=4) parsedCache.delete(parsedCache.keys().next().value);
   parsedCache.set(html,out);
   return out;
 }
@@ -114,7 +116,11 @@ export function isEarningsExhibitName(name) {
 // estimatedBasicPeriods: period ends whose basic EPS the worker estimated
 // rather than read from SEC; a reported exhibit value replaces the estimate.
 // estimatedDilutedPeriods: likewise for diluted EPS.
-export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocument,estimatedBasicPeriods=[],estimatedDilutedPeriods=[]) {
+export async function recoverSECReportedEPS(...args) {
+  try { return await recoverReported(...args); }
+  finally { parsedCache.clear(); }
+}
+async function recoverReported(rows,filings,cik,fetchJSON,fetchDocument,estimatedBasicPeriods=[],estimatedDilutedPeriods=[]) {
   const estimated=new Set(estimatedBasicPeriods);
   const estimatedDiluted=new Set(estimatedDilutedPeriods);
   const output=rows.map(r=>({...r})), findings=[];
