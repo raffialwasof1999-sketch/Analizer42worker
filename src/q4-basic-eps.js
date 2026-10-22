@@ -18,6 +18,13 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
   const findings=[];
   if(!Array.isArray(quarters)||!Array.isArray(years)||!Array.isArray(basicShareFacts)||!Array.isArray(annualEPSFacts))
     throw Error('Q4 basic EPS requires SEC observations');
+  // Index facts once: banks file thousands of EPS and share facts, and
+  // scanning every list inside the per-quarter loops exceeded Cloudflare's
+  // per-request CPU allowance.
+  const index=(list,key)=>{const m=new Map();for(const f of list){const k=key(f);if(!m.has(k))m.set(k,[]);m.get(k).push(f);}return m;};
+  const fullKey=f=>f.accn+'|'+f.start+'|'+f.end;
+  const sharesByEnd=index(basicShareFacts,f=>f.end), sharesByKey=index(basicShareFacts,fullKey);
+  const epsByEnd=index(annualEPSFacts,f=>f.end), epsByKey=index(annualEPSFacts,fullKey);
   for(const q4 of quarters.filter(q=>q.fiscalQuarter===4)){
     if(finite(q4[EPS]))continue;
     const yr=years.find(a=>a.fiscalYear===q4.fiscalYear &&
@@ -29,15 +36,14 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
     // A newer 10-K may restate older years onto a post-split share basis.
     // Select a SAME-ACCESSION annual basic EPS and basic-share pair whose
     // denominator agrees with the quarter's actual reporting basis.
-    const sources=basicShareFacts.filter(f=>
-      f.end===q4.fiscalPeriodEnd&&['10-K','10-K/A'].includes(f.form) &&
+    const sources=(sharesByEnd.get(q4.fiscalPeriodEnd)||[]).filter(f=>
+      ['10-K','10-K/A'].includes(f.form) &&
       typeof f.start==='string'&&finite(f.val)&&f.val>0&&
       days(f.start,f.end)>=330&&days(f.start,f.end)<=385
     ).sort((a,b)=>String(a.filed||'').localeCompare(String(b.filed||'')));
     const compatible=sources.flatMap(source=>{
       const annualValues=annualEPSFacts.length
-        ? annualEPSFacts.filter(e=>e.accn===source.accn &&
-            e.start===source.start && e.end===source.end &&
+        ? (epsByKey.get(fullKey(source))||[]).filter(e=>
             ['10-K','10-K/A'].includes(e.form) && finite(e.val))
         : [{val:yr[EPS]}]; // Compatibility for callers with no fact provenance.
       return annualValues.filter(e=>
@@ -63,13 +69,12 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
       // 10-Q accession. This avoids using a 2024-restated 2023 Q3 together
       // with older pre-split quarters to estimate a pre-split Q4.
       const originalQuarters=first.map(q=>{
-        const matches=annualEPSFacts.filter(e=>
-          e.end===q.fiscalPeriodEnd && e.start && e.accn &&
+        const matches=(epsByEnd.get(q.fiscalPeriodEnd)||[]).filter(e=>
+          e.start && e.accn &&
           e.form==='10-Q' && finite(e.val) &&
           days(e.start,e.end)>=60 && days(e.start,e.end)<=110 &&
           (!source.filed||!e.filed||e.filed<=source.filed)
-        ).flatMap(e=>basicShareFacts.filter(sh=>
-          sh.accn===e.accn && sh.start===e.start && sh.end===e.end &&
+        ).flatMap(e=>(sharesByKey.get(fullKey(e))||[]).filter(sh=>
           sh.form==='10-Q' && finite(sh.val) && sh.val>0 &&
           Math.abs(sh.val/source.val-1)<=.25 &&
           Math.abs(e.val*sh.val-q.netIncome)<=
