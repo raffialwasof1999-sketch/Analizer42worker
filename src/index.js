@@ -10,6 +10,7 @@ import { deriveQ4BasicEPS } from './q4-basic-eps.js';
 import { recoverSplitCrossingQ4BasicEPS } from './split-crossing-q4-basic-eps.js';
 import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './basic-eps-share-basis.js';
 import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
+import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage } from './sec-earnings-dates.js';
 
 /**
@@ -949,7 +950,8 @@ export default {
         q4SplitRecovery.rows,earningsHistory.filings,cik,secFetch,limitedSecDocument,
         estimatedBasicPeriods,q4DilutedEPSEvidence.findings.map(f=>f.fiscalPeriodEnd)
       );
-      const finalQuarterly=reportedEPS.rows;
+      const epsConsistency=enforceQuarterlyEPSConsistency(reportedEPS.rows,finalAnnual);
+      const finalQuarterly=epsConsistency.rows;
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
       // Script writes only the older 31/26 columns, so basic EPS needs an
       // independent column feed. 'NA' preserves row positions in sparse data.
@@ -977,6 +979,7 @@ export default {
       stockSplitAudit.quarterlyDilutedEPSAlignment=dilutedAlignment.findings;
       stockSplitAudit.quarterFourBasicEPS=q4BasicEPSEvidence;
       stockSplitAudit.quarterFourDilutedEPS=q4DilutedEPSEvidence;
+      stockSplitAudit.quarterlyEPSConsistency=epsConsistency.findings;
       stockSplitAudit.splitCrossingQ4BasicEPS=q4SplitRecovery.findings;
       stockSplitAudit.reportedQuarterEPS=reportedEPS.audit;
       stockSplitAudit.companyFactsNormalization={
