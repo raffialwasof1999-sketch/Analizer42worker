@@ -10,6 +10,17 @@ const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const days=(start,end)=>(Date.parse(end+'T00:00:00Z')-Date.parse(start+'T00:00:00Z'))/86400000;
 const plausible=(a,b)=>Math.abs(a-b)<=Math.max(0.035,Math.abs(b)*0.055);
 const cents=x=>Math.round((x+Number.EPSILON)*100)/100;
+// Does EPS x weighted shares reproduce net income? Preferred dividends only
+// LOWER common earnings (Wells Fargo's took 48% of 2020 net income and 94%
+// in Q1 2020), so the product may fall short by up to `shortfall` x |net
+// income| (60% for a full year, 100% for a quarter) but exceed it by no more
+// than 30%. Cent-rounded EPS on billions of shares adds
+// noise of half a cent per share (AMD's $0.01 Q4 2022 on 1.6bn shares).
+// Same-accession pairs share one split basis, so this guards units only.
+const earningsMatch=(eps,shares,income,shortfall)=>{
+  const gap=eps*shares-income, noise=Math.max(1,shares*0.005);
+  return gap<=Math.max(noise,Math.abs(income)*.30) && -gap<=Math.max(noise,Math.abs(income)*shortfall);
+};
 
 // The same method serves diluted EPS: pass {eps:'dilutedEPS',
 // shares:'dilutedShares'} with diluted weighted-share and EPS SEC facts.
@@ -47,9 +58,7 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
         ? (epsByKey.get(fullKey(source))||[]).filter(e=>
             ['10-K','10-K/A'].includes(e.form) && finite(e.val))
         : [{val:yr[EPS]}]; // Compatibility for callers with no fact provenance.
-      return annualValues.filter(e=>
-        Math.abs(yr.netIncome-e.val*source.val)<=
-          Math.max(1,Math.abs(yr.netIncome)*.30)
+      return annualValues.filter(e=>earningsMatch(e.val,source.val,yr.netIncome,.6)
       ).map(e=>({source,annualEPS:e.val}));
     });
     if(!compatible.length){skip('no 10-K EPS and share pair reconciles to annual net income');continue;}
@@ -78,8 +87,7 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
         ).flatMap(e=>(sharesByKey.get(fullKey(e))||[]).filter(sh=>
           sh.form==='10-Q' && finite(sh.val) && sh.val>0 &&
           Math.abs(sh.val/source.val-1)<=.25 &&
-          Math.abs(e.val*sh.val-q.netIncome)<=
-            Math.max(1,Math.abs(q.netIncome)*.30)
+          earningsMatch(e.val,sh.val,q.netIncome,1)
         ).map(sh=>({eps:e.val,shares:sh.val,filed:e.filed||''})));
         matches.sort((x,y)=>x.filed.localeCompare(y.filed));
         return matches[0]||null;
@@ -105,15 +113,23 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
           originalQuarters.reduce((sum,q)=>sum+q.eps*q.shares,0)
         : q4.netIncome;
       // Common earnings sit below GAAP net income by preferred dividends:
-      // about 11% for Wells Fargo in Q4 2020. The estimate itself uses the
-      // SEC EPS x shares figure, so this is only a sanity bound.
+      // about 11% for Wells Fargo in Q4 2020. q4Common is built from four
+      // cent-rounded EPS figures, so it also carries up to 2 cents per share
+      // of rounding noise; within that noise, net income is the better base.
+      const rounding=0.02*derivedShares;
       if(!finite(q4Common)||Math.abs(q4Common-q4.netIncome)>
-        Math.max(1,Math.abs(q4.netIncome)*.20)){why='Q4 common earnings '+Math.round(q4Common)+' vs net income '+q4.netIncome;continue;}
-      const estimate=cents(q4Common/derivedShares);
-      if(!finite(estimate)||!plausible(
-        first.reduce((sum,q,i)=>sum+(
-          provenQuarters?originalQuarters[i].eps:q[EPS]),estimate),
-        annualEPS)){why='quarters sum to '+cents(first.reduce((sum,q,i)=>sum+(provenQuarters?originalQuarters[i].eps:q[EPS]),estimate))+' vs annual '+annualEPS;continue;}
+        Math.max(1,Math.abs(q4.netIncome)*.20,rounding)){why='Q4 common earnings '+Math.round(q4Common)+' vs net income '+q4.netIncome;continue;}
+      const base=Math.abs(q4Common-q4.netIncome)<=rounding?q4.netIncome:q4Common;
+      const estimate=cents(base/derivedShares);
+      // Quarterly EPS add up to the annual figure only while the share count
+      // is steady; a mid-year issuance (AMD's Xilinx deal) moves the sum by
+      // about EPS x the quarter's share deviation from the annual average.
+      const quarterEPS=first.map((q,i)=>provenQuarters?originalQuarters[i].eps:q[EPS]);
+      const drift=quarterEPS.reduce((sum,e,i)=>sum+Math.abs(e*(1-quarterShares[i]/source.val)),0)+
+        Math.abs(estimate*(1-derivedShares/source.val));
+      const total=quarterEPS.reduce((a,b)=>a+b,estimate);
+      if(!finite(estimate)||Math.abs(total-annualEPS)>
+        Math.max(0.035,Math.abs(annualEPS)*0.055)+drift){why='quarters sum to '+cents(total)+' vs annual '+annualEPS;continue;}
       chosen={source,annualEPS,estimate,method:provenQuarters?'SEC-basic-EPS-weighted-shares-common-earnings':'SEC-net-income-weighted-shares'};
       break;
     }
