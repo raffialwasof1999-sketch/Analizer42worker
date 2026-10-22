@@ -14,27 +14,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm install --no-save acorn@8.15.0
       - name: Verify authorized private Apps Script import mapping using saved GitHub connection
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
         run: |
           node --input-type=module <<'NODE'
           import {readProject,SafeError} from './scripts/apps-script-readonly.mjs';
+          import {parse} from 'acorn';
           try {
-            const raw=process.env.CLASPRC_JSON; delete process.env.CLASPRC_JSON;
-            const project=await readProject(raw);
-            const source=project.files.filter(f=>f.type==='SERVER_JS').map(f=>f.source).join('\n');
-            const arrays=[...source.matchAll(/\[([^\[\]]{0,8000})\]/g)].map(m=>m[1]);
-            const quarterly=arrays.filter(s=>/\.fiscalQuarter\b/.test(s)&&/\.dilutedEPS\b/.test(s));
-            const quarterlyMapping=quarterly.some(s=>s.indexOf('.fiscalYear')<s.indexOf('.fiscalQuarter')&&s.indexOf('.fiscalQuarter')<s.indexOf('.fiscalPeriodEnd')&&s.indexOf('.fiscalPeriodEnd')<s.indexOf('.revenue')&&s.indexOf('.revenue')<s.indexOf('.netIncome')&&s.indexOf('.netIncome')<s.indexOf('.dilutedEPS')&&s.indexOf('.dilutedEPS')<s.indexOf('.operatingCashFlow'));
-            console.log(JSON.stringify({
-              exactProjectVerified:true,
-              workerEndpointReferenced:source.includes('analyzer42-sec.raffialwasof-1999.workers.dev'),
-              dilutedEPSImported:source.includes('dilutedEPS'),
-              basicEPSImported:source.includes('basicEPS')||source.includes('basicEpsCsv'),
-              quarterlyDilutedMappingInExpectedOrder:quarterlyMapping,
-              quarterlyFinancialsConsumed:source.includes('quarterlyFinancials'),
-              noSourceExported:true
-            }));
-          } catch(error) {console.error(error instanceof SafeError?error.message:'Verification failed; private details suppressed.');process.exitCode=1;}
+           const raw=process.env.CLASPRC_JSON;delete process.env.CLASPRC_JSON;
+           const project=await readProject(raw);
+           const arrays=[],ranges=[],clears=[];
+           function walk(node,parent){
+            if(!node||typeof node!=='object')return;
+            if(node.type==='ArrayExpression'){
+             const fields=node.elements.map((e,index)=>{
+              const found=new Set();
+              function scan(n){if(!n||typeof n!=='object')return;
+                if(n.type==='Literal'&&['basicEPS','dilutedEPS','fiscalYear','fiscalQuarter','fiscalPeriodEnd'].includes(n.value))found.add(n.value);
+                if(n.type==='MemberExpression'&&['basicEPS','dilutedEPS','fiscalYear','fiscalQuarter','fiscalPeriodEnd'].includes(n.property?.name))found.add(n.property.name);
+                for(const [k,v] of Object.entries(n))if(k!=='start'&&k!=='end')Array.isArray(v)?v.forEach(scan):scan(v);
+              }scan(e);return {index,fields:[...found]};}).filter(x=>x.fields.length);
+             if(fields.some(x=>x.fields.includes('dilutedEPS')))arrays.push({length:node.elements.length,fields});
+            }
+            if(node.type==='CallExpression'&&node.callee.type==='MemberExpression'){
+             const method=node.callee.property.name;
+             const label=n=>!n?'none':n.type==='Literal'?(typeof n.value==='number'?n.value:/^[A-Z]+\\d*(?::[A-Z]+\\d*)?$/.test(n.value)?n.value:'string'):n.type==='Identifier'?n.name:n.type==='MemberExpression'?label(n.object)+'.'+(n.property.name||'property'):n.type;
+             if(method==='getRange')ranges.push(node.arguments.map(label));
+             if(['clearContents','clearContent','clear'].includes(method))clears.push({method,receiver:label(node.callee.object)});
+            }
+            for(const [k,v] of Object.entries(node))if(!['start','end'].includes(k))Array.isArray(v)?v.forEach(x=>walk(x,node)):walk(v,node);
+           }
+           for(const file of project.files.filter(f=>f.type==='SERVER_JS'))walk(parse(file.source,{ecmaVersion:'latest',allowReturnOutsideFunction:true}));
+           console.log(JSON.stringify({arrays,ranges,clears,noSourceExported:true}));
+          }catch(error){console.error(error instanceof SafeError?error.message:'AST verification failed');process.exitCode=1;}
           NODE
