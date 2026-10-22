@@ -82,8 +82,11 @@ for(const ticker of TICKERS){
       const end=fcfGap.fiscalPeriodEnd;
       r.fcfTags=Object.entries(gaap).filter(([t])=>
         /^(NetCashProvidedByUsedInOperatingActivities.*|PaymentsToAcquire.*(Property|Productive|Equipment|Capital|Plant|Intangible|Software|Fixed|RealEstate).*|PaymentsForCapitalImprovements|PaymentsForProceedsFrom(Productive|PropertyPlant).*|CapitalExpenditure.*)$/.test(t))
-        .map(([t,c])=>{const f=Object.values(c.units||{}).flat().find(x=>x.end===end&&/^10-[KQ]/.test(x.form)&&x.start);
-          return f?`${t}=${(f.val/1e9).toFixed(2)}bn@${f.end}`:null;}).filter(Boolean);
+        .flatMap(([t,c])=>Object.values(c.units||{}).flat()
+          // Every figure for the gap quarter's fiscal year, to see breaks.
+          .filter(x=>x.start&&/^10-[KQ]/.test(x.form)&&Math.abs(Date.parse(x.end)-Date.parse(end))<=200*864e5)
+          .map(x=>`${t.replace('PaymentsToAcquire','PTA').replace('NetCashProvidedByUsedInOperatingActivities','OCF')}=${(x.val/1e9).toFixed(2)}@${x.start}..${x.end}/${x.form}`))
+        .filter((v,i,arr)=>arr.indexOf(v)===i).slice(0,40);
     }
     // Why each recent quarter lacks EPS: the row plus every audit finding
     // that names its period end.
