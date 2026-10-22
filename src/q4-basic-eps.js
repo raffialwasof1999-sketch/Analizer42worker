@@ -15,7 +15,7 @@ const cents=x=>Math.round((x+Number.EPSILON)*100)/100;
 // shares:'dilutedShares'} with diluted weighted-share and EPS SEC facts.
 export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[],metric={eps:'basicEPS',shares:'basicShares'}){
   const EPS=metric.eps, SHARES=metric.shares;
-  const findings=[];
+  const findings=[],skipped=[];
   if(!Array.isArray(quarters)||!Array.isArray(years)||!Array.isArray(basicShareFacts)||!Array.isArray(annualEPSFacts))
     throw Error('Q4 basic EPS requires SEC observations');
   // Index facts once: banks file thousands of EPS and share facts, and
@@ -31,8 +31,9 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
       a.fiscalPeriodEnd===q4.fiscalPeriodEnd);
     const first=[1,2,3].map(q=>quarters.find(r=>
       r.fiscalYear===q4.fiscalYear&&r.fiscalQuarter===q));
+    const skip=reason=>skipped.push({fiscalPeriodEnd:q4.fiscalPeriodEnd,metric:EPS,reason});
     if(!yr||!finite(yr[EPS])||!finite(yr.netIncome)||
-      !finite(q4.netIncome)||first.some(q=>!q))continue;
+      !finite(q4.netIncome)||first.some(q=>!q)){skip('missing annual EPS, net income or Q1-Q3 rows');continue;}
     // A newer 10-K may restate older years onto a post-split share basis.
     // Select a SAME-ACCESSION annual basic EPS and basic-share pair whose
     // denominator agrees with the quarter's actual reporting basis.
@@ -51,20 +52,20 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
           Math.max(1,Math.abs(yr.netIncome)*.30)
       ).map(e=>({source,annualEPS:e.val}));
     });
-    if(!compatible.length)continue;
+    if(!compatible.length){skip('no 10-K EPS and share pair reconciles to annual net income');continue;}
     const ends=first.map(q=>q.fiscalPeriodEnd);
     if(!(ends[0]<ends[1]&&ends[1]<ends[2]&&
-      ends[2]<q4.fiscalPeriodEnd))continue;
-    let chosen=null;
+      ends[2]<q4.fiscalPeriodEnd)){skip('quarter ends out of order');continue;}
+    let chosen=null,why='no candidate';
     for(const {source,annualEPS} of compatible){
-      if(!(source.start<ends[0]))continue;
+      if(!(source.start<ends[0])){why='10-K period starts after Q1';continue;}
       const qdays=[
         days(source.start,ends[0])+1,days(ends[0],ends[1]),
         days(ends[1],ends[2]),days(ends[2],q4.fiscalPeriodEnd)
       ];
       const allDays=days(source.start,q4.fiscalPeriodEnd)+1;
       if(qdays.some(d=>d<70||d>105)||allDays<340||allDays>375||
-        Math.abs(qdays.reduce((a,b)=>a+b,0)-allDays)>.01)continue;
+        Math.abs(qdays.reduce((a,b)=>a+b,0)-allDays)>.01){why='quarter lengths '+qdays.join('/');continue;}
       // Recover period-specific SEC basic EPS AND denominator from the same
       // 10-Q accession. This avoids using a 2024-restated 2023 Q3 together
       // with older pre-split quarters to estimate a pre-split Q4.
@@ -87,7 +88,7 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
       if(!provenQuarters && !first.every(q=>
         finite(q.netIncome)&&finite(q[EPS])&&finite(q[SHARES])&&
         q[SHARES]>0&&plausible(q.netIncome/q[SHARES],q[EPS])&&
-        Math.abs(q[SHARES]/source.val-1)<=.25))continue;
+        Math.abs(q[SHARES]/source.val-1)<=.25)){why='Q1-Q3 EPS, shares and income not proven';continue;}
       const quarterShares=provenQuarters
         ? originalQuarters.map(q=>q.shares)
         : first.map(q=>q[SHARES]);
@@ -95,7 +96,7 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
         quarterShares.reduce((sum,shares,i)=>sum+shares*qdays[i],0))/qdays[3];
       if(!finite(derivedShares)||derivedShares<=0||
         Math.abs(derivedShares/source.val-1)>.25||
-        Math.abs(derivedShares/quarterShares[2]-1)>.25)continue;
+        Math.abs(derivedShares/quarterShares[2]-1)>.25){why='derived Q4 shares '+Math.round(derivedShares)+' vs Q3 '+quarterShares[2];continue;}
       // The annual SEC basic EPS times annual weighted basic shares reflects
       // earnings available to COMMON stockholders. Gross net income can be
       // higher when a preferred dividend is due (as for AVGO in FY2021).
@@ -107,16 +108,16 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
       // about 11% for Wells Fargo in Q4 2020. The estimate itself uses the
       // SEC EPS x shares figure, so this is only a sanity bound.
       if(!finite(q4Common)||Math.abs(q4Common-q4.netIncome)>
-        Math.max(1,Math.abs(q4.netIncome)*.20))continue;
+        Math.max(1,Math.abs(q4.netIncome)*.20)){why='Q4 common earnings '+Math.round(q4Common)+' vs net income '+q4.netIncome;continue;}
       const estimate=cents(q4Common/derivedShares);
       if(!finite(estimate)||!plausible(
         first.reduce((sum,q,i)=>sum+(
           provenQuarters?originalQuarters[i].eps:q[EPS]),estimate),
-        annualEPS))continue;
+        annualEPS)){why='quarters sum to '+cents(first.reduce((sum,q,i)=>sum+(provenQuarters?originalQuarters[i].eps:q[EPS]),estimate))+' vs annual '+annualEPS;continue;}
       chosen={source,annualEPS,estimate,method:provenQuarters?'SEC-basic-EPS-weighted-shares-common-earnings':'SEC-net-income-weighted-shares'};
       break;
     }
-    if(!chosen)continue;
+    if(!chosen){skip(why);continue;}
     q4[EPS]=chosen.estimate;
     findings.push({fiscalYear:q4.fiscalYear,
       fiscalPeriodEnd:q4.fiscalPeriodEnd,[EPS]:chosen.estimate,metric:EPS,
@@ -126,6 +127,6 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
       status:'estimated-from-SEC-reported-basic-shares-and-net-income',
       explicitlyReported:false});
   }
-  return {estimatedCount:findings.length,findings,
+  return {estimatedCount:findings.length,findings,skipped,
     limitation:'Q4 basic EPS estimates are not separately reported EPS. Keep evidence status visible; do not present them as exact SEC-reported values.'};
 }
