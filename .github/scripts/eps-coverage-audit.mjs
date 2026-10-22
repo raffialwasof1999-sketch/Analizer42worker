@@ -51,10 +51,10 @@ for(const ticker of TICKERS){
       const gaap=(await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${d.cik}.json`,
         {headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}})).json()).facts?.['us-gaap']||{};
       r.balanceTags=Object.entries(gaap).filter(([t])=>
-        /Debt|Borrowing|CommercialPaper|NotesPayable|FinanceLease|^Cash|CashEquivalents/.test(t)&&!/Interest|Expense|Repayment|Proceeds|Payments|Issuance|Fair|Maturit|Covenant|Percent|Rate|Term$/.test(t))
+        /^(DebtCurrent|LongTermDebt\w*|ShortTerm(Borrowings|DebtCurrent)|CommercialPaper|OtherShortTermBorrowings|(Long)?\w*NotesPayable\w*|DebtInstrumentCarryingAmount|CashAndCashEquivalentsAtCarryingValue|Cash|CashAndDueFromBanks|OtherLongTermDebt\w*|SecuredDebt\w*|UnsecuredDebt\w*|SeniorNotes\w*|Debt\w*Combined\w*)$/.test(t)&&!/Fair|Maturit|Percent|Rate|Interest/.test(t))
         .flatMap(([t,c])=>Object.values(c.units||{}).flat()
           .filter(x=>x.end===q[0].fiscalPeriodEnd&&!x.start&&/^10-[KQ]/.test(x.form))
-          .slice(0,1).map(x=>`${t}=${(x.val/1e9).toFixed(2)}`));
+          .slice(0,1).map(x=>`${t.replace('CashAndCashEquivalentsAtCarryingValue','Cash').replace('LongTermDebt','LTD')}=${(x.val/1e9).toFixed(2)}`));
     }
     r.q20FreeCashFlowBlank=blank(q.slice(0,20),'freeCashFlow');
     r.latestDilutedShares=finite(q[0]?.dilutedShares);
