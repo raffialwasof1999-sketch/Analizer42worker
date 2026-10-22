@@ -507,6 +507,13 @@ function coverShares(rows,sec) {
     r.dilutedShares =
       precise?.val ??
       (n(r.dilutedShares)!==null ? r.dilutedShares : null);
+    // With no dilution (diluted EPS = basic EPS) the basic weighted count is
+    // the diluted count. ExxonMobil Holdings' first 10-Q tagged only basic.
+    if (r.dilutedShares===null && n(r.basicShares)!==null && r.basicShares>0 &&
+        n(r.dilutedEPS)!==null && n(r.basicEPS)!==null &&
+        Math.abs(r.dilutedEPS-r.basicEPS)<0.005) {
+      r.dilutedShares = r.basicShares;
+    }
 
     delete r._accession;
   }

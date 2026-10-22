@@ -30,6 +30,8 @@ test('tiny Q4 EPS after a mid-year share issuance (AMD 2022 shape)',()=>{
   const out=run(x);
   assert.equal(out.estimatedCount,1,JSON.stringify(out.skipped));
   assert.equal(x.quarters[3].dilutedEPS,x.trueQ4);   // 0.01, not 0.02 from rounding noise
+  // The derived Q4 weighted count fills the quarter's share figure.
+  assert.ok(Math.abs(x.quarters[3].dilutedShares/1.62e9-1)<0.001,String(x.quarters[3].dilutedShares));
 });
 
 test('preferred dividends taking most of a quarter (Wells Fargo 2020 shape)',()=>{

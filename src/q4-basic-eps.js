@@ -130,16 +130,19 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
       const total=quarterEPS.reduce((a,b)=>a+b,estimate);
       if(!finite(estimate)||Math.abs(total-annualEPS)>
         Math.max(0.035,Math.abs(annualEPS)*0.055)+drift){why='quarters sum to '+cents(total)+' vs annual '+annualEPS;continue;}
-      chosen={source,annualEPS,estimate,method:provenQuarters?'SEC-basic-EPS-weighted-shares-common-earnings':'SEC-net-income-weighted-shares'};
+      chosen={source,annualEPS,estimate,derivedShares,method:provenQuarters?'SEC-basic-EPS-weighted-shares-common-earnings':'SEC-net-income-weighted-shares'};
       break;
     }
     if(!chosen){skip(why);continue;}
     q4[EPS]=chosen.estimate;
+    // The 10-K gives only a full-year weighted count; the Q4 count derived
+    // above (full year x days minus Q1-Q3) fills the quarter's own figure.
+    if(!finite(q4[SHARES]))q4[SHARES]=Math.round(chosen.derivedShares);
     findings.push({fiscalYear:q4.fiscalYear,
       fiscalPeriodEnd:q4.fiscalPeriodEnd,[EPS]:chosen.estimate,metric:EPS,
       sourceAnnualAccession:chosen.source.accn||null,
       sourceAnnualReportedBasicEPS:chosen.annualEPS,sourceAnnualReportedEPS:chosen.annualEPS,
-      estimationMethod:chosen.method,
+      estimationMethod:chosen.method,derivedWeightedShares:Math.round(chosen.derivedShares),
       status:'estimated-from-SEC-reported-basic-shares-and-net-income',
       explicitlyReported:false});
   }
