@@ -71,18 +71,19 @@ for(const ticker of TICKERS){
     r.overSubrequestLimit=calls>SUBREQUEST_LIMIT;
     // Free cash flow = operating cash flow - capital expenditures. When it is
     // missing, say which half is missing and which tags SEC holds for it.
-    const fcfGap=q.slice(0,4).find(x=>!finite(x.freeCashFlow));
+    const fcfGap=q.slice(0,20).find(x=>!finite(x.freeCashFlow));
     if(fcfGap){
-      const y=a[0]||{};
-      r.fcfMissing=[!finite(fcfGap.operatingCashFlow)&&'operatingCashFlow',!finite(fcfGap.capitalExpenditures)&&'capitalExpenditures']
+      const y=a.find(x=>x.fiscalPeriodEnd>=fcfGap.fiscalPeriodEnd&&!finite(x.freeCashFlow))||
+        a.find(x=>x.fiscalPeriodEnd>=fcfGap.fiscalPeriodEnd)||a[0]||{};
+      r.fcfMissing=fcfGap.fiscalPeriodEnd+' '+[!finite(fcfGap.operatingCashFlow)&&'operatingCashFlow',!finite(fcfGap.capitalExpenditures)&&'capitalExpenditures']
         .filter(Boolean).join('+')+` (annual OCF=${y.operatingCashFlow} capex=${y.capitalExpenditures})`;
       const gaap=(await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${d.cik}.json`,
         {headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}})).json()).facts?.['us-gaap']||{};
       const end=y.fiscalPeriodEnd;
       r.fcfTags=Object.entries(gaap).filter(([t])=>
         /^(NetCashProvidedByUsedInOperatingActivities.*|PaymentsToAcquire.*(Property|Productive|Equipment|Capital|Plant|Intangible|Software|Fixed|RealEstate).*|PaymentsForCapitalImprovements|PaymentsForProceedsFrom(Productive|PropertyPlant).*|CapitalExpenditure.*)$/.test(t))
-        .map(([t,c])=>{const f=Object.values(c.units||{}).flat().find(x=>x.end===end&&/^10-K/.test(x.form)&&x.start);
-          return f?`${t}=${(f.val/1e9).toFixed(2)}bn`:null;}).filter(Boolean);
+        .map(([t,c])=>{const f=Object.values(c.units||{}).flat().find(x=>x.end===end&&/^10-[KQ]/.test(x.form)&&x.start);
+          return f?`${t}=${(f.val/1e9).toFixed(2)}bn@${f.end}`:null;}).filter(Boolean);
     }
     // Why each recent quarter lacks EPS: the row plus every audit finding
     // that names its period end.
