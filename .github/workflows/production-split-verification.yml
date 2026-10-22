@@ -17,8 +17,12 @@ jobs:
           set -euo pipefail
           for ticker in AAPL NVDA TSLA GE MSFT; do
             echo "Checking production $ticker"
-            curl --fail-with-body --silent --show-error --max-time 90 \
-              "$PROD/?ticker=$ticker" -o "/tmp/$ticker.json"
+            code=$(curl --silent --show-error --max-time 90 -w '%{http_code}' \
+              "$PROD/?ticker=$ticker" -o "/tmp/$ticker.json" || echo "curl-failed")
+            if [ "$code" != "200" ]; then
+              echo "::error title=Production $ticker returned $code::$(head -c 400 "/tmp/$ticker.json" 2>/dev/null | tr '\n' ' ')"
+              exit 1
+            fi
             TICKER="$ticker" node <<'JS'
           const fs = require('fs');
           const ticker=process.env.TICKER;
