@@ -57,11 +57,18 @@ export function reportedQuarterEPS(html,end) {
   const unique=[...new Map(found.map(v=>[JSON.stringify(v),v])).values()];
   return unique.length===1?unique[0]:null;
 }
-function reconciles(report,row,html,rows) {
+function reconciles(report,row,html,rows,estimated) {
   // Existing normalized basic EPS anchors the split basis. The same statement's
   // net income must independently match the exact quarter, including units.
-  const anchors=finite(row.basicEPS) ? [{known:row.basicEPS,reported:report.basicEPS}] : rows.filter(r=>finite(r.basicEPS)).map(r=>({known:r.basicEPS,reported:reportedQuarterEPS(html,r.fiscalPeriodEnd)?.basicEPS}));
-  return anchors.some(a=>finite(a.reported) && Math.abs(a.known-a.reported)<0.0051) && finite(row.netIncome) &&
+  // A Q4 basic EPS the worker estimated (not SEC-reported) can be a cent off,
+  // so it anchors the share basis within 3% instead: any stock split is at
+  // least 3-for-2, far outside that, and net income must still match exactly.
+  const own=estimated.has(row.fiscalPeriodEnd) && finite(row.basicEPS);
+  const anchors=own ? [] : finite(row.basicEPS) ? [{known:row.basicEPS,reported:report.basicEPS}] : rows.filter(r=>finite(r.basicEPS)).map(r=>({known:r.basicEPS,reported:reportedQuarterEPS(html,r.fiscalPeriodEnd)?.basicEPS}));
+  const anchored=own
+    ? Math.abs(row.basicEPS-report.basicEPS)<=Math.max(0.0051,Math.abs(report.basicEPS)*.03)
+    : anchors.some(a=>finite(a.reported) && Math.abs(a.known-a.reported)<0.0051);
+  return anchored && finite(row.netIncome) &&
     [1,1000,1e6].some(scale=>Math.abs(report.netIncome*scale-row.netIncome)<=Math.max(1,Math.abs(row.netIncome)*0.001));
 }
 // Exhibit 99 filenames vary by filer: "ex991_q425.htm" (Netflix),
@@ -70,7 +77,10 @@ function reconciles(report,row,html,rows) {
 export function isEarningsExhibitName(name) {
   return typeof name==='string' && /^[A-Za-z0-9_-]*?ex(?:hibit)?[-_]?99[\w.-]*\.html?$/i.test(name);
 }
-export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocument) {
+// estimatedBasicPeriods: period ends whose basic EPS the worker estimated
+// rather than read from SEC; a reported exhibit value replaces the estimate.
+export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocument,estimatedBasicPeriods=[]) {
+  const estimated=new Set(estimatedBasicPeriods);
   const output=rows.map(r=>({...r})), findings=[];
   const candidates=output.filter(r=>!finite(r.dilutedEPS)||!finite(r.basicEPS));
   let requests=0;
@@ -93,14 +103,14 @@ export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocu
           for(const name of names) entries.push({url:base+name,html:await fetchDocument({filingDocumentUrl:base+name})});
           documents.set(base,entries);
         }
-        const reports=documents.get(base).map(d=>({...d,report:reportedQuarterEPS(d.html,end)})).filter(d=>d.report && reconciles(d.report,row,d.html,output));
+        const reports=documents.get(base).map(d=>({...d,report:reportedQuarterEPS(d.html,end)})).filter(d=>d.report && reconciles(d.report,row,d.html,output,estimated));
         if(!reports.length) continue;
         if(new Set(reports.map(d=>JSON.stringify(d.report))).size!==1) {findings.push({periodEnd:end,status:'conflicting-exhibits'});continue;}
         const {report,url}=reports[0];
         // Preserve existing facts; this fallback only fills verified gaps.
         const filled=[];
-        for(const key of ['basicEPS','dilutedEPS']) if(!finite(row[key])) {row[key]=report[key];filled.push(key);}
-        findings.push({periodEnd:end,status:'recovered',fields:filled,accession:filing.accession,filed:filing.filed,source:url,basis:'matches normalized basic EPS and quarterly net income'});
+        for(const key of ['basicEPS','dilutedEPS']) if(!finite(row[key]) || (key==='basicEPS' && estimated.has(end) && row[key]!==report[key])) {row[key]=report[key];filled.push(key);}
+        findings.push({periodEnd:end,status:'recovered',fields:filled,accession:filing.accession,filed:filing.filed,source:url,basis:estimated.has(end)?'estimated Q4 basic EPS within 3% of reported (same share basis); quarterly net income matches':'matches normalized basic EPS and quarterly net income'});
         break;
       } catch(error) {findings.push({periodEnd:end,status:'unavailable',accession:filing.accession,error:String(error.message).slice(0,160)});}
     }

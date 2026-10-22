@@ -9,6 +9,7 @@ import { recoverSECReportedEPS } from './sec-reported-eps.js';
 import { deriveQ4BasicEPS } from './q4-basic-eps.js';
 import { recoverSplitCrossingQ4BasicEPS } from './split-crossing-q4-basic-eps.js';
 import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './basic-eps-share-basis.js';
+import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage } from './sec-earnings-dates.js';
 
 /**
@@ -926,13 +927,22 @@ export default {
           row.fiscalQuarter===4?['10-K','10-K/A']:['10-Q','10-Q/A']),
         q4BasicEPSEvidence.findings,annualSharesProof
       );
-      const preliminaryQuarterly=(autoQuarterly?quarterlyNormalized.rows:quarterlyFinancials)
+      const dilutedAlignment=autoQuarterly
+        ? {rows:quarterlyNormalized.rows,findings:null}
+        : alignQuarterlyDilutedEPS(quarterlyFinancials,quarterlyFinancials,
+            quarterlyNormalized.rows,basicHistorical.factors,splitDetected);
+      const preliminaryQuarterly=dilutedAlignment.rows
         .map((row,i)=>({...row,basicEPS:basicHistorical.rows[i].basicEPS}));
       const q4SplitRecovery=recoverSplitCrossingQ4BasicEPS(
         preliminaryQuarterly,quarters,finalAnnual,map.basicEPS,map.basicShares,basisGraph
       );
+      const estimatedBasicPeriods=[
+        ...q4BasicEPSEvidence.findings.map(f=>f.fiscalPeriodEnd),
+        ...q4SplitRecovery.findings.map(f=>f.periodEnd)
+      ];
       const reportedEPS=await recoverSECReportedEPS(
-        q4SplitRecovery.rows,earningsHistory.filings,cik,secFetch,limitedSecDocument
+        q4SplitRecovery.rows,earningsHistory.filings,cik,secFetch,limitedSecDocument,
+        estimatedBasicPeriods
       );
       const finalQuarterly=reportedEPS.rows;
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
@@ -959,6 +969,7 @@ export default {
         method:basicHistorical.method,adjustedCount:basicHistorical.adjustedCount,
         unavailableCount:basicHistorical.unavailableCount
       };
+      stockSplitAudit.quarterlyDilutedEPSAlignment=dilutedAlignment.findings;
       stockSplitAudit.quarterFourBasicEPS=q4BasicEPSEvidence;
       stockSplitAudit.splitCrossingQ4BasicEPS=q4SplitRecovery.findings;
       stockSplitAudit.reportedQuarterEPS=reportedEPS.audit;
