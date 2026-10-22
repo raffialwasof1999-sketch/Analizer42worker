@@ -1032,7 +1032,7 @@ export default {
             fiveYear:rollingRoicCoverage(quarters,20),
             tenYear:rollingRoicCoverage(quarters,40)
           },
-          earningsDates:earningsDateCoverage(quarters,earningsHistory.archivesScanned),
+          earningsDates:{...earningsDateCoverage(quarters,earningsHistory.archivesScanned),archivesSkipped:earningsHistory.archivesSkipped||[]},
           annualYears:annualFinancials.length,
           reportedQuarters:quarterlyFinancials.length,
           latestFourConsecutive:

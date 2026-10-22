@@ -103,13 +103,13 @@ export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocu
   let requests=0;
   const documents=new Map();
   for(const row of candidates) {
-    if(requests>=12) break;
+    if(requests>=24) break;
     const end=row.fiscalPeriodEnd;
     const matches=filings.filter(f=>f.form==='8-K' && /(?:^|[,;\s])2\.02(?:$|[,;\s])/.test(f.items||'') &&
       /^\d{10}-\d{2}-\d{6}$/.test(f.accession) && f.filed>=end && (Date.parse(f.filed)-Date.parse(end))/86400000<=105)
       .sort((a,b)=>a.filed.localeCompare(b.filed)).slice(0,2);
     for(const filing of matches) {
-      if(requests>=12) break;
+      if(requests>=24) break;
       const base=`https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${filing.accession.replaceAll('-','')}/`;
       try {
         if(!documents.has(base)) {
@@ -117,7 +117,13 @@ export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocu
           const listing=await fetchJSON(base+'index.json');
           const names=(listing.directory?.item||[]).map(x=>x.name).filter(isEarningsExhibitName).slice(0,3);
           const entries=[];
-          for(const name of names) entries.push({url:base+name,html:await fetchDocument({filingDocumentUrl:base+name})});
+          // Every document counts against the same budget as directory
+          // listings: Cloudflare caps subrequests per worker invocation.
+          for(const name of names) {
+            if(requests>=24) break;
+            requests++;
+            entries.push({url:base+name,html:await fetchDocument({filingDocumentUrl:base+name})});
+          }
           documents.set(base,entries);
         }
         const reports=documents.get(base).map(d=>({...d,report:reportedQuarterEPS(d.html,end)})).filter(d=>d.report && reconciles(d.report,row,d.html,output,estimated));
