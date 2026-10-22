@@ -36,22 +36,28 @@ export function blankReasons(quarters,context={}){
       return "Banks don't report operating income, and ROIC isn't meaningful for a bank.";
     if(context.bank&&field==='capitalExpenditures')
       return 'Banks report no capital expenditures, so free cash flow does not apply.';
-    if(field==='dilutedEPS'&&!context.hasEPSTags)
-      return `${name} reports EPS only per share class (e.g. Class A and B), so there is no single EPS figure.`;
+    if(field==='dilutedEPS'&&context.hasEPSTags===false)
+      return `${name} reports no single company-wide EPS in its recent SEC data (typically because EPS is given per share class, e.g. Class A and B).`;
     if(field==='investedCapital'){
       for(const part of ['totalDebt','cash','stockholdersEquity']){
         const r=why(part,count);
         if(r)return `Invested capital needs total debt, cash and equity. ${r}`;
       }
     }
-    if(field==='totalDebt'&&missing.length===rows.length)
-      return hasTag('totalDebt')
-        ? `${name}'s debt lines can't be added up to a confirmed total without risk of double counting.`
-        : `${name} files no standard SEC debt figures (its balance sheet uses company-specific labels, which SEC's data feed omits), or has no debt to report.`;
+    if(field==='totalDebt'&&context.debtFactsAt){
+      // Name the first missing date and what was filed for it.
+      const end=missing[0].fiscalPeriodEnd, filed=context.debtFactsAt(end);
+      const span=missing.length===rows.length?'':` (missing for ${missing.length} of the last ${count} quarters)`;
+      return filed
+        ? `The debt lines ${name} filed for ${end} can't be added up to a confirmed total without risk of double counting${span}.`
+        : `${name} filed no standard SEC debt figures for ${end}${span}: it may have had no debt, or used company-specific labels, which SEC's data feed omits.`;
+    }
     if(missing.length===rows.length&&!hasTag(field))
       return `${name} files no standard SEC figure for ${label}; it likely uses a company-specific label, which SEC's data feed omits.`;
-    const oldest=missing[missing.length-1].fiscalPeriodEnd;
-    return `${label[0].toUpperCase()+label.slice(1)} is missing for ${missing.length} of the last ${count} quarters (oldest missing ${oldest}); SEC's data has no standard figure for those periods.`;
+    const oldest=missing[missing.length-1].fiscalPeriodEnd, Label=label[0].toUpperCase()+label.slice(1);
+    if(missing.length===rows.length)
+      return `${Label} is missing for all of the last ${count} quarters; ${name} files no standard SEC figure for it in that period (likely a company-specific label, which SEC's data feed omits).`;
+    return `${Label} is missing for ${missing.length} of the last ${count} quarters (oldest missing ${oldest}); SEC's data has no standard figure for those periods.`;
   };
   const first=(...reasons)=>reasons.find(Boolean)||null;
   const add=(metric,reason)=>{if(reason)out.push({metric,reason});};
@@ -68,7 +74,7 @@ export function blankReasons(quarters,context={}){
   const negative=!eps24&&series.some(v=>!(v>0));
   const fiveYear=first(eps24,negative?'Trailing 12-month EPS was zero or negative at some point in the last 5 years, so an average P/E is undefined.':null);
   add('P/E Ratio (5-Year Avg.)',fiveYear);
-  let pegWhy=fiveYear;
+  let pegWhy=first(eps24,negative?'Trailing 12-month EPS was zero or negative at some point in the last 5 years, so its growth rate (and PEG) is undefined.':null);
   if(!pegWhy){
     // Same trend line as the sheet: least squares on ln(TTM EPS) by quarter.
     const ys=series.slice(0,20).reverse().map(Math.log), n=ys.length;

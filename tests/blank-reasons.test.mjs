@@ -21,7 +21,7 @@ test('banks: ROIC and free cash flow do not apply',()=>{
 test('share-class EPS issuers are named as such (Berkshire, Visa)',()=>{
   const q=full().map(r=>({...r,dilutedEPS:null}));
   const r=blankReasons(q,{companyName:'Berkshire Hathaway',hasEPSTags:false});
-  assert.match(r.find(x=>x.metric==='P/E Ratio (TTM)').reason,/only per share class/);
+  assert.match(r.find(x=>x.metric==='P/E Ratio (TTM)').reason,/per share class/);
 });
 
 test('negative earnings in the window explain the 5-year P/E and PEG (Exxon 2020)',()=>{
@@ -45,4 +45,17 @@ test('falling EPS explains PEG; CSV quotes and escapes',()=>{
   assert.match(r.find(x=>x.metric==='PEG Ratio (Past 5 Years)').reason,/did not grow/);
   const csv=blankReasonsCsv([{metric:'A',reason:'say "hi"'}],'X');
   assert.equal(csv,'"Metric","Why it is blank"\n"A","say ""hi"""\n');
+});
+
+test('debt reasons say what was filed for the missing date (Palantir vs Adobe)',()=>{
+  const q=full(); q[0].totalDebt=null; q[0].investedCapital=null;
+  const none=blankReasons(q,{companyName:'Palantir',debtFactsAt:()=>0});
+  assert.match(none.find(x=>x.metric==='Enterprise Value').reason,/filed no standard SEC debt figures for .*may have had no debt/);
+  const some=blankReasons(q,{companyName:'Adobe',debtFactsAt:()=>2});
+  assert.match(some.find(x=>x.metric==='Enterprise Value').reason,/can't be added up/);
+});
+
+test('PEG wording is about growth, not average P/E',()=>{
+  const q=full(); q[22].dilutedEPS=-9;
+  assert.match(blankReasons(q,{}).find(x=>x.metric==='PEG Ratio (Past 5 Years)').reason,/growth rate \(and PEG\)/);
 });

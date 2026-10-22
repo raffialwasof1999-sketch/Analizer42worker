@@ -1049,8 +1049,11 @@ export default {
       const reasons=blankReasons(finalQuarterly,{
         companyName:facts.entityName||company.title||ticker,
         bank:isBank(map),
-        hasEPSTags:Boolean(gaap.EarningsPerShareDiluted||gaap.EarningsPerShareBasic),
-        hasTag:key=>(key==='totalDebt'?DEBT_KEYS:[key]).some(k=>(map[k]||[]).length>0)
+        // Any company-wide EPS filed for the last ~6 years' period ends.
+        hasEPSTags:['dilutedEPS','basicEPS'].some(k=>(map[k]||[]).some(f=>
+          f.end>=(finalQuarterly[23]?.fiscalPeriodEnd||'0000'))),
+        hasTag:key=>(key==='totalDebt'?DEBT_KEYS:[key]).some(k=>(map[k]||[]).length>0),
+        debtFactsAt:end=>DEBT_KEYS.reduce((sum,k)=>sum+(map[k]||[]).filter(f=>f.end===end&&!f.start).length,0)
       });
       // Small CSV for the sheet's IMPORTDATA "Data Notes" tab.
       if (url.searchParams.get('blankReasons') === '1') {
