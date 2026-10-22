@@ -50,6 +50,22 @@ export function auditedAbsentCurrentDebtProof({cik,periodEnd,form}={},noncurrent
   };
 }
 
+/**
+ * Total interest-bearing debt from balance-sheet facts. A missing figure is
+ * never read as zero without evidence:
+ * - a combined total is used directly;
+ * - noncurrent debt plus current debt (DebtCurrent, which already contains
+ *   current maturities and borrowings, or else the separate borrowings and
+ *   current-maturity lines). Commercial paper counts only when no
+ *   ShortTermBorrowings line exists, since that line usually includes it;
+ * - noncurrent debt alone only when total long-term debt or the debt
+ *   carrying amount equals it, proving there is no current portion (Meta,
+ *   McDonald's);
+ * - unclassified LongTermDebt (banks) plus short-term borrowings;
+ * - LongTermDebt with DebtCurrent only when the carrying amount confirms
+ *   that they add up (Tesla), because LongTermDebt is the noncurrent line
+ *   for some issuers and the total for others.
+ */
 export function secTotalDebt(get,context={}) {
   if(typeof get!=='function')throw Error('A SEC facts resolver is required');
   const direct=nonnegative(get('totalDebt'));
@@ -57,15 +73,26 @@ export function secTotalDebt(get,context={}) {
   const long=nonnegative(get('longTermDebt'));
   const short=nonnegative(get('shortTermDebt'));
   const current=nonnegative(get('currentPortionLongTermDebt'));
+  const debtCurrent=nonnegative(get('debtCurrent'));
+  const borrowings=short??nonnegative(get('otherShortTermBorrowings'));
+  const ltdTotal=nonnegative(get('longTermDebtTotal'));
+  const carrying=nonnegative(get('debtCarrying'));
+  const same=(a,b)=>a!==null&&b!==null&&Math.abs(a-b)<=Math.max(1,0.005*Math.max(a,b));
+  if(long!==null) {
+    if(debtCurrent!==null)return long+debtCurrent;
+    if(borrowings!==null||current!==null)return long+(borrowings??0)+(current??0);
+    if(same(ltdTotal,long)||same(carrying,long))return long;
+    return auditedAbsentCurrentDebtProof(context,long)?.noncurrent??null;
+  }
+  if(ltdTotal!==null) {
+    if(debtCurrent!==null)
+      return same(carrying,ltdTotal+debtCurrent)?ltdTotal+debtCurrent:null;
+    if(borrowings!==null&&current===null)return ltdTotal+borrowings;
+    return null;
+  }
   // An absent noncurrent taxonomy fact is recovered only when the exact
   // historic filing has independently verified the balance, and no other
   // current borrowing has been reported.
-  if(long===null) {
-    if(short!==null||current!==null)return null;
-    return auditedAbsentCurrentDebtProof(context)?.noncurrent??null;
-  }
-  if(short!==null||current!==null) {
-    return long+(short??0)+(current??0);
-  }
-  return auditedAbsentCurrentDebtProof(context,long)?.noncurrent??null;
+  if(short!==null||current!==null||debtCurrent!==null)return null;
+  return auditedAbsentCurrentDebtProof(context)?.noncurrent??null;
 }
