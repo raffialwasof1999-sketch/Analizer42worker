@@ -149,3 +149,32 @@ export function earningsDateCoverage(rows,archivesScanned) {
     dateMeaning:'SEC 8-K Item 2.02 filing date, not necessarily the first earnings announcement'
   };
 }
+
+/**
+ * Filing dates for quarters the submissions archives never reached.
+ * Heavy filers (JPMorgan files thousands of prospectuses) exhaust the
+ * archive budget around 2024, leaving older quarters without a 10-Q/10-K
+ * date, so the sheet's historical P/E cannot tell when their EPS became
+ * public. Company Facts already carry each fact's filing date and
+ * accession: the earliest 10-Q (or, for Q4, 10-K) reporting the quarter's
+ * own net income or revenue is the original report. Later comparatives
+ * (next year's filings) have later dates and lose. The 8-K earnings-release
+ * date stays unknown; no request is added.
+ */
+export function fillFilingDatesFromFacts(rows,factLists) {
+  const facts=factLists.flat().filter(f=>f && f.start && isoDate(f.end) && isoDate(f.filed) && f.accn);
+  let filled=0;
+  for (const r of rows) {
+    if (r.secFilingDate) continue;
+    const forms=r.fiscalQuarter===4 ? ['10-K','10-K/A'] : ['10-Q','10-Q/A'];
+    const original=facts.filter(f=>f.end===r.fiscalPeriodEnd && forms.includes(f.form) &&
+      days(r.fiscalPeriodEnd,f.filed)>=0 && days(r.fiscalPeriodEnd,f.filed)<=200)
+      .sort((a,b)=>a.filed.localeCompare(b.filed)||a.accn.localeCompare(b.accn))[0];
+    if (!original) continue;
+    r.secFilingDate=original.filed;
+    r._accession=r._accession||original.accn;
+    r.filingDateSource='companyfacts';
+    filled++;
+  }
+  return filled;
+}

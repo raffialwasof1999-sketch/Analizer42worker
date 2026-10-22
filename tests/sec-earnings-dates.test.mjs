@@ -111,3 +111,33 @@ test('handles a company with only recent filings',async()=>{
   assert.equal(loaded.archivesScanned,0);
   assert.equal(quarters[0].earningsDisclosureDate,'2026-08-20');
 });
+
+import {fillFilingDatesFromFacts} from '../src/sec-earnings-dates.js';
+test('quarters past the archive budget get their original 10-Q/10-K date from Company Facts', () => {
+  const rows=[
+    {fiscalYear:2023,fiscalQuarter:3,fiscalPeriodEnd:'2023-09-30',secFilingDate:null,_accession:null},
+    {fiscalYear:2023,fiscalQuarter:4,fiscalPeriodEnd:'2023-12-31',secFilingDate:null,_accession:null},
+    {fiscalYear:2024,fiscalQuarter:1,fiscalPeriodEnd:'2024-03-31',secFilingDate:'2024-05-01',_accession:'keep'}
+  ];
+  const ni=[
+    // Q3 2023: original 10-Q, then the comparative in next year's 10-Q.
+    {start:'2023-07-01',end:'2023-09-30',form:'10-Q',filed:'2023-11-03',accn:'0000019617-23-000600'},
+    {start:'2023-07-01',end:'2023-09-30',form:'10-Q',filed:'2024-11-04',accn:'0000019617-24-000611'},
+    // Q4 2023 only has full-year 10-K facts; the 10-Q year-to-date fact is ignored.
+    {start:'2023-01-01',end:'2023-12-31',form:'10-K',filed:'2024-02-16',accn:'0000019617-24-000080'},
+    {start:'2023-10-01',end:'2023-12-31',form:'10-Q',filed:'2024-01-30',accn:'wrong-form'},
+    {start:'2024-01-01',end:'2024-03-31',form:'10-Q',filed:'2024-04-29',accn:'other'}
+  ];
+  assert.equal(fillFilingDatesFromFacts(rows,[ni,[]]),2);
+  assert.deepEqual(rows.map(r=>[r.secFilingDate,r._accession]),[
+    ['2023-11-03','0000019617-23-000600'],['2024-02-16','0000019617-24-000080'],['2024-05-01','keep']]);
+  assert.equal(rows[0].filingDateSource,'companyfacts');
+  assert.equal(rows[2].filingDateSource,undefined);
+});
+
+test('no matching original filing leaves the date unknown', () => {
+  const rows=[{fiscalQuarter:2,fiscalPeriodEnd:'2022-06-30',secFilingDate:null}];
+  // Only a comparative filed far later (> 200 days): not the original report.
+  fillFilingDatesFromFacts(rows,[[{start:'2022-04-01',end:'2022-06-30',form:'10-Q',filed:'2023-08-01',accn:'x'}]]);
+  assert.equal(rows[0].secFilingDate,null);
+});

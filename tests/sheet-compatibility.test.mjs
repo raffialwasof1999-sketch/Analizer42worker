@@ -86,3 +86,24 @@ test('worker output passes the Apps Script refresh validation unchanged', async 
   assert.equal(v.quarter[0].length, gs.AA_QUARTER_FIELDS.length);
   assert.equal(v.quarter[0][gs.AA_QUARTER_FIELDS.indexOf('sourceTicker')], 'TEST');
 });
+
+test('feeds served from the shared calculation match the direct calculation byte for byte', async () => {
+  const { routeRequest, resetFeedReuse } = await import('../src/index.js');
+  const original = globalThis.fetch;
+  globalThis.fetch = async url => {
+    url = String(url);
+    if (url.includes('company_tickers.json')) return Response.json(company);
+    if (url.includes('/companyfacts/')) return Response.json(facts);
+    if (url.includes('/submissions/')) return Response.json(details);
+    throw Error('Unexpected SEC fetch ' + url);
+  };
+  try {
+    for (const feed of ['basicEpsCsv=quarterly', 'basicEpsCsv=annual', 'blankReasons=1']) {
+      resetFeedReuse();
+      // An unknown extra parameter bypasses reuse and runs the original path.
+      const direct = await (await routeRequest(new Request('https://w.test/?ticker=TEST&' + feed + '&bypass=1'))).text();
+      const shared = await (await routeRequest(new Request('https://w.test/?ticker=TEST&' + feed + '&revision=1'))).text();
+      assert.equal(shared, direct, feed);
+    }
+  } finally { globalThis.fetch = original; resetFeedReuse(); }
+});
