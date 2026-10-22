@@ -47,6 +47,19 @@ jobs:
             for(const [k,v] of Object.entries(node))if(!['start','end'].includes(k))Array.isArray(v)?v.forEach(x=>walk(x,node)):walk(v,node);
            }
            for(const file of project.files.filter(f=>f.type==='SERVER_JS'))walk(parse(file.source,{ecmaVersion:'latest',allowReturnOutsideFunction:true}));
-           console.log(JSON.stringify({arrays,ranges,clears,noSourceExported:true}));
+           const declarations=[],clearDetails=[];
+           function details(node){
+            if(!node||typeof node!=='object')return;
+            if(node.type==='VariableDeclarator'&&node.init?.type==='ArrayExpression'&&node.init.elements.some(e=>e?.type==='Literal'&&e.value==='dilutedEPS')){
+              declarations.push({name:node.id.name,fields:node.init.elements.map(e=>e?.type==='Literal'&&typeof e.value==='string'&&/^[a-zA-Z][a-zA-Z0-9_ ]{0,50}$/.test(e.value)?e.value:'dynamic')});
+            }
+            if(node.type==='CallExpression'&&['clearContent','setValues'].includes(node.callee?.property?.name)){
+             const r=node.callee.object;
+             clearDetails.push({method:node.callee.property.name,rangeMethod:r?.callee?.property?.name,args:r?.arguments?.map(a=>a.type==='Literal'?a.value:a.type==='Identifier'?a.name:a.type==='MemberExpression'?[a.object?.name,a.property?.name]:a.type)});
+            }
+            for(const [k,v] of Object.entries(node))if(!['start','end'].includes(k))Array.isArray(v)?v.forEach(details):details(v);
+           }
+           for(const file of project.files.filter(f=>f.type==='SERVER_JS'))details(parse(file.source,{ecmaVersion:'latest',allowReturnOutsideFunction:true}));
+           console.log(JSON.stringify({declarations,clearDetails,noSourceExported:true}));
           }catch(error){console.error(error instanceof SafeError?error.message:'AST verification failed');process.exitCode=1;}
           NODE
