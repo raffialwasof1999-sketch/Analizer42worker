@@ -41,6 +41,12 @@ for(const ticker of TICKERS){
     r.q24RevenueBlank=blank(q24,'revenue');
     r.q24NetIncomeBlank=blank(q24,'netIncome');
     r.ttmFreeCashFlowBlank=blank(q.slice(0,4),'freeCashFlow');
+    // ROIC needs operating income, tax, pre-tax income and invested capital
+    // for every quarter in its window (4, 20 and 40 quarters, plus one more
+    // invested capital); enterprise value needs the latest debt and cash.
+    r.roicBlank=Object.fromEntries(['operatingIncome','incomeTaxExpense','incomeBeforeTax','investedCapital']
+      .map(k=>[k,blank(q.slice(0,k==='investedCapital'?21:20),k).length]).filter(([,n])=>n));
+    r.evBlank=['totalDebt','cash'].filter(k=>!finite(q[0]?.[k]));
     r.q20FreeCashFlowBlank=blank(q.slice(0,20),'freeCashFlow');
     r.latestDilutedShares=finite(q[0]?.dilutedShares);
     if(!r.latestDilutedShares&&q[0]){
@@ -132,6 +138,8 @@ const problems=r=>[
   r.q20FreeCashFlowBlank?.length&&r.q20FreeCashFlowBlank.length+' of 20 quarters lack FCF',
   r.q24BasicEPSBlank?.length&&r.q24BasicEPSBlank.length+' lack basic EPS',
   (r.q24RevenueBlank?.length||r.q24NetIncomeBlank?.length)&&'revenue/net income gaps',
+  Object.keys(r.roicBlank||{}).length&&'ROIC 5y gaps '+JSON.stringify(r.roicBlank),
+  r.evBlank?.length&&'EV blank ('+r.evBlank+')',
   r.latestDilutedShares===false&&'latest diluted shares blank'+(r.latestShareTags?' [SEC has: '+(r.latestShareTags.join(', ')||'none')+']':''),
   r.a10Blank?.length&&r.a10Blank.length+' annual gaps ('+r.a10Blank.slice(0,4)+')',
   r.epsMismatch?.length&&'diluted vs basic mismatch '+r.epsMismatch.slice(0,3),
