@@ -47,6 +47,15 @@ for(const ticker of TICKERS){
     r.roicBlank=Object.fromEntries(['operatingIncome','incomeTaxExpense','incomeBeforeTax','investedCapital']
       .map(k=>[k,blank(q.slice(0,k==='investedCapital'?21:20),k).length]).filter(([,n])=>n));
     r.evBlank=['totalDebt','cash'].filter(k=>!finite(q[0]?.[k]));
+    if(r.evBlank.length&&q[0]){
+      const gaap=(await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${d.cik}.json`,
+        {headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}})).json()).facts?.['us-gaap']||{};
+      r.balanceTags=Object.entries(gaap).filter(([t])=>
+        /Debt|Borrowing|CommercialPaper|NotesPayable|FinanceLease|^Cash|CashEquivalents/.test(t)&&!/Interest|Expense|Repayment|Proceeds|Payments|Issuance|Fair|Maturit|Covenant|Percent|Rate|Term$/.test(t))
+        .flatMap(([t,c])=>Object.values(c.units||{}).flat()
+          .filter(x=>x.end===q[0].fiscalPeriodEnd&&!x.start&&/^10-[KQ]/.test(x.form))
+          .slice(0,1).map(x=>`${t}=${(x.val/1e9).toFixed(2)}`));
+    }
     r.q20FreeCashFlowBlank=blank(q.slice(0,20),'freeCashFlow');
     r.latestDilutedShares=finite(q[0]?.dilutedShares);
     if(!r.latestDilutedShares&&q[0]){
@@ -151,6 +160,8 @@ const lines=results.map(r=>{const p=problems(r);
 const clean=results.filter(r=>!problems(r).length).length;
 const summary=`${clean}/${results.length} tickers complete`;
 console.log(summary+'\n'+lines.join('\n'));
+const bal=results.filter(r=>r.balanceTags).map(r=>`${r.ticker} blank:${r.evBlank}%0A  ${r.balanceTags.join(', ')||'none'}`);
+if(bal.length)console.log(`::notice title=Debt and cash tags::${bal.join('%0A').replace(/::/g,'; ')}`);
 const fcf=results.filter(r=>r.fcfMissing).map(r=>`${r.ticker}: missing ${r.fcfMissing}%0A  SEC: ${r.fcfTags.join(', ')||'none'}`);
 if(fcf.length)console.log(`::notice title=FCF gap detail::${fcf.join('%0A').replace(/::/g,'; ')}`);
 const detail=results.filter(r=>r.epsGapDetail?.length).map(r=>r.ticker+'%0A  '+r.epsGapDetail.join('%0A  '));
