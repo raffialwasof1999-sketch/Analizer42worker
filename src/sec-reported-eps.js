@@ -124,9 +124,11 @@ async function recoverReported(rows,filings,cik,fetchJSON,fetchDocument,estimate
   const estimated=new Set(estimatedBasicPeriods);
   const estimatedDiluted=new Set(estimatedDilutedPeriods);
   const output=rows.map(r=>({...r})), findings=[];
-  // Estimated Q4 diluted EPS is only worth a lookup in the newest 24
-  // quarters, which feed P/E (TTM), the 5-year P/E and PEG.
-  const recent=new Set(output.slice(0,24).map(r=>r.fiscalPeriodEnd));
+  // An exhibit improves an estimated Q4 diluted EPS by about a cent, and
+  // parsing exhibits is the main CPU cost (Cloudflare's Free plan allows
+  // ~10 ms per request), so only the newest 8 quarters, which feed
+  // P/E (TTM), are looked up for that reason.
+  const recent=new Set(output.slice(0,8).map(r=>r.fiscalPeriodEnd));
   const candidates=output.filter(r=>!finite(r.dilutedEPS)||!finite(r.basicEPS)||(estimatedDiluted.has(r.fiscalPeriodEnd)&&recent.has(r.fiscalPeriodEnd)));
   let requests=0;
   const documents=new Map();
