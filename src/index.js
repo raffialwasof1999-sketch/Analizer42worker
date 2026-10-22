@@ -267,6 +267,17 @@ function decorate(r,older) {
   return r;
 }
 
+// Fiscal year label for a fiscal year-end date. 52/53-week years that end on
+// the weekend nearest December 31 can end in the first days of January:
+// Johnson & Johnson's fiscal 2022 ended 2023-01-01. Labelling that 2023
+// would duplicate fiscal 2023, so a year ending by January 7 belongs to the
+// prior calendar year. Late-January and February year-ends (retailers) keep
+// the calendar year they end in.
+function fiscalYearOf(end) {
+  const year=Number(end.slice(0,4));
+  return end.slice(5,10)<='01-07' ? year-1 : year;
+}
+
 function periods(map) {
   const forms = ['10-K','10-K/A'];
 
@@ -295,7 +306,7 @@ function buildAnnual(map,ends,cik=null) {
       val(map[k],end,INSTANT.has(k)?'instant':'annual',forms);
 
     const r = {
-      fiscalYear:Number(end.slice(0,4)),
+      fiscalYear:fiscalYearOf(end),
       fiscalPeriodEnd:end
     };
 
@@ -357,7 +368,7 @@ function buildQuarterly(map,ends,cik=null) {
     if (current.length) {
       groups.push({
         ends:current,
-        year:Number(ends[0].slice(0,4))+1
+        year:fiscalYearOf(ends[0])+1
       });
     }
   }
@@ -370,7 +381,7 @@ function buildQuarterly(map,ends,cik=null) {
     if (qs.length===3) {
       groups.push({
         ends:[...qs,ends[i]],
-        year:Number(ends[i].slice(0,4))
+        year:fiscalYearOf(ends[i])
       });
     }
   }

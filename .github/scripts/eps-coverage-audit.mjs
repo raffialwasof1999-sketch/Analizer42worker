@@ -73,6 +73,30 @@ for(const ticker of TICKERS){
   await new Promise(s=>setTimeout(s,400));
 }
 
+// For tickers the worker could not load at all, show what SEC holds for
+// the headline revenue and net income tags.
+const diag=[];
+for(const r of results.filter(r=>r.error)){
+  try{
+    const ua={headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}};
+    const map=await (await realFetch('https://www.sec.gov/files/company_tickers.json',ua)).json();
+    const hit=Object.values(map).find(x=>x.ticker===r.ticker.replace('-','.')||x.ticker===r.ticker);
+    const cik=String(hit?.cik_str).padStart(10,'0');
+    const f=await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`,ua)).json();
+    const days=(a,b)=>(Date.parse(b)-Date.parse(a))/864e5;
+    const gaap=f.facts?.['us-gaap']||{};
+    const lines=['taxonomies='+Object.keys(f.facts||{}).join('/')+' usgaapTags='+Object.keys(gaap).length];
+    for(const tag of Object.keys(gaap).filter(t=>/^(Revenues|RevenueFromContract.*|SalesRevenue.*|NetIncomeLoss|ProfitLoss|NetIncomeLossAttributableToParent)$/.test(t))){
+      const all=Object.values(gaap[tag].units||{}).flat();
+      const k=all.filter(x=>/^10-K/.test(x.form));
+      const annual=k.filter(x=>x.start&&days(x.start,x.end)>=330&&days(x.start,x.end)<=385);
+      lines.push(`${tag} units=${Object.keys(gaap[tag].units)} all=${all.length} 10K=${k.length} annual10K=${annual.length} newest=${JSON.stringify(annual.sort((a,b)=>b.end.localeCompare(a.end))[0]||k[0]||all[0])}`);
+    }
+    diag.push(`${r.ticker} cik=${cik} ${f.entityName}%0A  `+lines.join('%0A  '));
+  }catch(e){diag.push(r.ticker+' diagnostic failed: '+e.message);}
+}
+if(diag.length)console.log(`::notice title=Load failure detail::${diag.join('%0A').replace(/::/g,'; ')}`);
+
 const problems=r=>[
   r.error&&'error: '+r.error,
   r.ttmDilutedEPSBlank?.length&&'P/E TTM blank ('+r.ttmDilutedEPSBlank+')',
