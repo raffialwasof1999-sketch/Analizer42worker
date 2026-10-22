@@ -1,0 +1,94 @@
+name: Back up and verify Active Analyzer code upload
+
+on:
+  push:
+    branches: [chore/apps-script-github-sync]
+    paths:
+      - .github/workflows/apps-script-upload-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: active-analyzer-apps-script-upload
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Back up exact project and upload identical source
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { appendFileSync } from 'node:fs';
+          import { credentials, SafeError, SCRIPT_ID, PARENT_ID } from './scripts/apps-script-readonly.mjs';
+          function report(message) {
+            console.log(message);
+            if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, message + '\n');
+          }
+          async function request(url, method, body, token, label) {
+            let response;
+            try {
+              response = await fetch(url, {
+                method,
+                redirect: 'error',
+                signal: AbortSignal.timeout(45000),
+                headers: token ? { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/x-www-form-urlencoded' },
+                ...(body === undefined ? {} : { body: token ? JSON.stringify(body) : body })
+              });
+            } catch { throw new SafeError(label + ': network failure; no private response logged.'); }
+            if (!response.ok) throw new SafeError(label + ': HTTP ' + response.status + '; no private response logged.');
+            try { return await response.json(); }
+            catch { throw new SafeError(label + ': invalid response; no private content logged.'); }
+          }
+          function files(content) {
+            if (content.scriptId !== SCRIPT_ID || !Array.isArray(content.files) || !content.files.length) throw new SafeError('Invalid project source.');
+            const result = content.files.map(f => {
+              if (typeof f.name !== 'string' || typeof f.source !== 'string' || !['SERVER_JS', 'HTML', 'JSON'].includes(f.type)) throw new SafeError('Invalid source file.');
+              return { name: f.name, type: f.type, source: f.source };
+            });
+            if (!result.some(f => f.name === 'appsscript' && f.type === 'JSON')) throw new SafeError('Manifest missing.');
+            if (new Set(result.map(f => f.type + ':' + f.name)).size !== result.length) throw new SafeError('Duplicate files.');
+            return result;
+          }
+          function digest(source) {
+            const sorted = [...source].sort((a, b) => (a.type + ':' + a.name).localeCompare(b.type + ':' + b.name));
+            return createHash('sha256').update(JSON.stringify(sorted)).digest('hex');
+          }
+          try {
+            const c = credentials(process.env.CLASPRC_JSON);
+            delete process.env.CLASPRC_JSON;
+            const auth = await request('https://oauth2.googleapis.com/token', 'POST', new URLSearchParams({ ...c, grant_type: 'refresh_token' }).toString(), null, 'Google authorization');
+            const token = auth.access_token;
+            if (typeof token !== 'string' || !token) throw new SafeError('Google returned no access token.');
+            const base = 'https://script.googleapis.com/v1/projects/' + SCRIPT_ID;
+            const project = await request(base, 'GET', undefined, token, 'Project identity');
+            if (project.scriptId !== SCRIPT_ID || project.parentId !== PARENT_ID) throw new SafeError('Script or parent mismatch; stopped before writes.');
+            const original = files(await request(base + '/content', 'GET', undefined, token, 'Source read'));
+            const before = digest(original);
+            const backup = await request(base + '/versions', 'POST', { description: 'Backup before authorized identical-code upload verification; GitHub run ' + process.env.GITHUB_RUN_ID }, token, 'Version backup');
+            if (backup.scriptId !== SCRIPT_ID || !Number.isInteger(backup.versionNumber) || backup.versionNumber < 1) throw new SafeError('Backup response invalid; upload stopped.');
+            report('Versioned backup created in Google: ' + backup.versionNumber + '.');
+            const saved = files(await request(base + '/content?versionNumber=' + backup.versionNumber, 'GET', undefined, token, 'Backup verification'));
+            if (digest(saved) !== before) throw new SafeError('Backup differs from initial source; upload stopped.');
+            const latest = files(await request(base + '/content', 'GET', undefined, token, 'Concurrent edit check'));
+            if (digest(latest) !== before) throw new SafeError('Source changed during verification; upload stopped.');
+            await request(base + '/content', 'PUT', { files: original }, token, 'Identical-source upload');
+            const after = files(await request(base + '/content', 'GET', undefined, token, 'Post-upload verification'));
+            if (digest(after) !== before) throw new SafeError('Post-upload source differs; inspect project and saved backup before further writes.');
+            report('Code upload verification PASSED. Exact script and parent confirmed. All ' + after.length + ' source files match the pre-upload SHA-256: ' + before + '.');
+            report('No source or credentials published. No spreadsheet values, triggers, properties, or deployment configurations changed. This verifies source uploads, not web app deployment.');
+          } catch (error) {
+            console.error(error instanceof SafeError ? error.message : 'Upload verification failed; private details suppressed.');
+            process.exitCode = 1;
+          }
+          NODE

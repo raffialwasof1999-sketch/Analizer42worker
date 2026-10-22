@@ -1,0 +1,47 @@
+name: Verify Active Analyzer Apps Script access
+
+on:
+  push:
+    branches: [chore/apps-script-github-sync]
+    paths:
+      - .github/workflows/apps-script-access-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify saved Google authorization and exact project
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          import { readProject, SafeError } from './scripts/apps-script-readonly.mjs';
+          const raw = process.env.CLASPRC_JSON;
+          delete process.env.CLASPRC_JSON;
+          try {
+            const result = await readProject(raw);
+            const summary = [
+              'Apps Script read-only connection check PASSED.',
+              'Saved Google credential: accepted.',
+              'Script ID and parent spreadsheet: exact match.',
+              'Source files retrieved: ' + result.files.length + '.',
+              'No source or credentials were printed or uploaded.',
+              'No Apps Script content, properties, triggers, or deployments were modified.'
+            ].join('\n');
+            console.log(summary);
+            if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
+          } catch (error) {
+            console.error(error instanceof SafeError ? error.message : 'Connection check failed; details suppressed to protect private data.');
+            process.exitCode = 1;
+          }
+          NODE
