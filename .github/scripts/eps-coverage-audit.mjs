@@ -69,6 +69,25 @@ for(const ticker of TICKERS){
     const audit=d.stockSplitAudit||{};
     r.q4DilutedEstimated=(audit.quarterFourDilutedEPS?.findings||[]).length;
     r.overSubrequestLimit=calls>SUBREQUEST_LIMIT;
+    // Free cash flow = operating cash flow - capital expenditures. When it is
+    // missing, say which half is missing and which tags SEC holds for it.
+    const fcfGap=q.slice(0,20).find(x=>!finite(x.freeCashFlow));
+    if(fcfGap){
+      const y=a.find(x=>x.fiscalPeriodEnd>=fcfGap.fiscalPeriodEnd&&!finite(x.freeCashFlow))||
+        a.find(x=>x.fiscalPeriodEnd>=fcfGap.fiscalPeriodEnd)||a[0]||{};
+      r.fcfMissing=fcfGap.fiscalPeriodEnd+' '+[!finite(fcfGap.operatingCashFlow)&&'operatingCashFlow',!finite(fcfGap.capitalExpenditures)&&'capitalExpenditures']
+        .filter(Boolean).join('+')+` (annual OCF=${y.operatingCashFlow} capex=${y.capitalExpenditures})`;
+      const gaap=(await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${d.cik}.json`,
+        {headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}})).json()).facts?.['us-gaap']||{};
+      const end=fcfGap.fiscalPeriodEnd;
+      r.fcfTags=Object.entries(gaap).filter(([t])=>
+        /^(NetCashProvidedByUsedInOperatingActivities.*|PaymentsToAcquire.*(Property|Productive|Equipment|Capital|Plant|Intangible|Software|Fixed|RealEstate).*|PaymentsForCapitalImprovements|PaymentsForProceedsFrom(Productive|PropertyPlant).*|CapitalExpenditure.*)$/.test(t))
+        .flatMap(([t,c])=>Object.values(c.units||{}).flat()
+          // Every figure for the gap quarter's fiscal year, to see breaks.
+          .filter(x=>x.start&&/^10-[KQ]/.test(x.form)&&Math.abs(Date.parse(x.end)-Date.parse(end))<=200*864e5)
+          .map(x=>`${t.replace('PaymentsToAcquire','PTA').replace('NetCashProvidedByUsedInOperatingActivities','OCF')}=${(x.val/1e9).toFixed(2)}@${x.start}..${x.end}/${x.form}`))
+        .filter((v,i,arr)=>arr.indexOf(v)===i).slice(0,40);
+    }
     // Why each recent quarter lacks EPS: the row plus every audit finding
     // that names its period end.
     const findingsFor=end=>JSON.stringify(audit).match(new RegExp('\\{[^{}]*"'+end+'"[^{}]*\\}','g'))||[];
@@ -124,6 +143,8 @@ const lines=results.map(r=>{const p=problems(r);
 const clean=results.filter(r=>!problems(r).length).length;
 const summary=`${clean}/${results.length} tickers complete`;
 console.log(summary+'\n'+lines.join('\n'));
+const fcf=results.filter(r=>r.fcfMissing).map(r=>`${r.ticker}: missing ${r.fcfMissing}%0A  SEC: ${r.fcfTags.join(', ')||'none'}`);
+if(fcf.length)console.log(`::notice title=FCF gap detail::${fcf.join('%0A').replace(/::/g,'; ')}`);
 const detail=results.filter(r=>r.epsGapDetail?.length).map(r=>r.ticker+'%0A  '+r.epsGapDetail.join('%0A  '));
 if(detail.length)console.log(`::notice title=EPS gap detail::${detail.join('%0A').replace(/::/g,'; ')}`);
 // Annotation text survives where logs cannot be downloaded.
