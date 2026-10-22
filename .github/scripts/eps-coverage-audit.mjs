@@ -79,7 +79,7 @@ for(const ticker of TICKERS){
         .filter(Boolean).join('+')+` (annual OCF=${y.operatingCashFlow} capex=${y.capitalExpenditures})`;
       const gaap=(await (await realFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${d.cik}.json`,
         {headers:{'User-Agent':'Analyzer42 audit raffialwasof.1999@gmail.com'}})).json()).facts?.['us-gaap']||{};
-      const end=y.fiscalPeriodEnd;
+      const end=fcfGap.fiscalPeriodEnd;
       r.fcfTags=Object.entries(gaap).filter(([t])=>
         /^(NetCashProvidedByUsedInOperatingActivities.*|PaymentsToAcquire.*(Property|Productive|Equipment|Capital|Plant|Intangible|Software|Fixed|RealEstate).*|PaymentsForCapitalImprovements|PaymentsForProceedsFrom(Productive|PropertyPlant).*|CapitalExpenditure.*)$/.test(t))
         .map(([t,c])=>{const f=Object.values(c.units||{}).flat().find(x=>x.end===end&&/^10-[KQ]/.test(x.form)&&x.start);
