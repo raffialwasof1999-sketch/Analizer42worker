@@ -13,7 +13,7 @@ import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
 import { withPredecessor } from './sec-predecessor.js';
 import { blankReasons, blankReasonsCsv } from './blank-reasons.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
-import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage } from './sec-earnings-dates.js';
+import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage, fillFilingDatesFromFacts } from './sec-earnings-dates.js';
 
 /**
  * ACTIVE ANALYZER — CLOUDFLARE SEC WORKER
@@ -690,8 +690,82 @@ async function historicalSplitFilings(sub,cik,structuredEvidence) {
   return {candidates:[...map.values()],failedArchives:failed,archiveCount:files.length};
 }
 
+/* =========================================================
+   ONE CALCULATION PER REFRESH
+   A sheet refresh sends the Apps Script import plus three IMPORTDATA feeds
+   (basic EPS annual/quarterly, blank reasons) within about a second. Each
+   used to rerun the whole SEC download and calculation, and four at once
+   exceeded the Worker's resource limits ("Worker exceeded resource limits",
+   HTTP 503), dropping one at random. The import always calculates fresh and
+   stores its result; the feeds reuse a result under FEED_REUSE_MS old, and
+   concurrent feed requests share one calculation. Feed output is unchanged.
+   ========================================================= */
+const FEED_REUSE_MS = 5*60*1000;
+const FEED_PARAMS = new Set(['ticker','basicEpsCsv','blankReasons','revision','release','retry']);
+const recent = new Map(); // ticker -> {at, promise of {status, body}}
+
+function csvResponse(text) {
+  return new Response(text,{headers:{
+    'content-type':'text/csv; charset=utf-8',
+    'access-control-allow-origin':'*',
+    'cache-control':'public, max-age=900'
+  }});
+}
+
+function remember(ticker,promise) {
+  const entry={at:Date.now(),promise};
+  recent.set(ticker,entry);
+  // Failed calculations are not reused; at most 8 tickers are kept.
+  promise.then(r=>{ if(r.status!==200 && recent.get(ticker)===entry) recent.delete(ticker); },
+    ()=>{ if(recent.get(ticker)===entry) recent.delete(ticker); });
+  while (recent.size>8) recent.delete(recent.keys().next().value);
+  return promise;
+}
+
+async function calculate(ticker,handler) {
+  const response=await handler(new Request('https://internal.local/?ticker='+encodeURIComponent(ticker)));
+  return {status:response.status,body:await response.text()};
+}
+
+export function resetFeedReuse() { recent.clear(); }
+
+export async function routeRequest(request,handler=handleRequest) {
+  if (request.method!=='GET') return handler(request);
+  const url=new URL(request.url);
+  const params=[...url.searchParams.keys()];
+  const ticker=(url.searchParams.get('ticker')||'').trim().toUpperCase();
+  // Raw views, audits and inspections keep their own path.
+  if (!/^[A-Z0-9.-]{1,12}$/.test(ticker) || params.some(k=>!FEED_PARAMS.has(k)))
+    return handler(request);
+  const feed=url.searchParams.get('blankReasons')==='1' ? 'reasons'
+    : url.searchParams.has('basicEpsCsv') ? 'basic' : null;
+  if (feed==='basic' && !['annual','quarterly'].includes(url.searchParams.get('basicEpsCsv')))
+    return json({success:false,error:'Choose basicEpsCsv=annual or quarterly'},400);
+
+  let result;
+  if (!feed) {
+    result=await remember(ticker,calculate(ticker,handler));
+  } else {
+    const hit=recent.get(ticker);
+    result=await (hit && Date.now()-hit.at<FEED_REUSE_MS
+      ? hit.promise : remember(ticker,calculate(ticker,handler)));
+  }
+  if (result.status!==200 || !feed) return new Response(result.body,{status:result.status,headers:{
+    'content-type':'application/json; charset=utf-8',
+    'access-control-allow-origin':'*',
+    'cache-control':'public, max-age=900'
+  }});
+  const data=JSON.parse(result.body);
+  if (feed==='reasons') return csvResponse(blankReasonsCsv(data.blankReasons||[],ticker));
+  const records=url.searchParams.get('basicEpsCsv')==='annual'?data.annualFinancials:data.quarterlyFinancials;
+  return csvResponse(records.map(r=>n(r.basicEPS)!==null?String(r.basicEPS):'NA').join('\n')+'\n');
+}
+
 export default {
-  async fetch(request) {
+  fetch(request) { return routeRequest(request); }
+};
+
+async function handleRequest(request) {
     if (request.method!=='GET') {
       return json({success:false,error:'GET only'},405);
     }
@@ -964,6 +1038,7 @@ export default {
 
       const earningsHistory = await fullQuarterFilingHistory(sub,quarters,cik,secFetch);
       assignQuarterDates(quarters,earningsHistory.filings);
+      const factFilingDates=fillFilingDatesFromFacts(quarters,[map.netIncome,map.revenue]);
       coverShares(quarters,facts);
       const q4BasicEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,map.basicShares,map.basicEPS);
       // Most issuers never file a standalone fiscal Q4 diluted EPS. Estimate it
@@ -1146,7 +1221,7 @@ export default {
             fiveYear:rollingRoicCoverage(quarters,20),
             tenYear:rollingRoicCoverage(quarters,40)
           },
-          earningsDates:{...earningsDateCoverage(quarters,earningsHistory.archivesScanned),archivesSkipped:earningsHistory.archivesSkipped||[]},
+          earningsDates:{...earningsDateCoverage(quarters,earningsHistory.archivesScanned),archivesSkipped:earningsHistory.archivesSkipped||[],filingDatesFromCompanyFacts:factFilingDates},
           annualYears:annualFinancials.length,
           reportedQuarters:quarterlyFinancials.length,
           latestFourConsecutive:
@@ -1170,7 +1245,6 @@ export default {
         error:String(err?.message||err)
       },502);
     }
-  }
-};
+}
 
 

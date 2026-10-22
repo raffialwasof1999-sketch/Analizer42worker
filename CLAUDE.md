@@ -62,6 +62,14 @@ Quarterly Data AA+ (the basic-EPS `IMPORTDATA` columns).
 - A new field reaches the sheet only if it is added to the worker's field
   list, the script's field list and the data tab's header row, in one PR.
 - Extra response fields are ignored by the script and are safe.
+- The three IMPORTDATA feeds (`basicEpsCsv`, `blankReasons`) reuse the
+  import's calculation for 5 minutes (`routeRequest` in `src/index.js`);
+  four separate calculations per refresh exceeded Cloudflare's resource
+  limits. Keep feed output derived from the main JSON.
+- Historical P/E Data!H4:H31 dates each quarter by Quarterly Data X
+  (8-K earnings release), falling back to W (10-Q/10-K filing). Heavy
+  filers' older quarters get W from Company Facts
+  (`fillFilingDatesFromFacts`).
 
 ## Checklist for every requested change
 
