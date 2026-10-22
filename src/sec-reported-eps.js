@@ -42,8 +42,10 @@ export function reportedQuarterEPS(html,end) {
     const result={}; let eps=false;
     for(const row of rows) {
       const label=row.find(c=>c.value)?.value||'';
-      if(/Earnings per (?:common )?share/i.test(label)) {eps=true;continue;}
-      if(/Weighted.average|shares.*outstanding/i.test(label)) eps=false;
+      // Share-count headings end the EPS section. Check them first: Apple's
+      // "Shares used in computing earnings per share:" also names EPS.
+      if(/Weighted.average|\bshares\b/i.test(label)) eps=false;
+      else if(/Earnings per (?:common )?share/i.test(label)) {eps=true;continue;}
       const values=row.filter(c=>c.start<target.end && c.end>target.start).map(c=>number(c.value)).filter(finite);
       if(values.length!==1) continue;
       if(/^Net income(?:\s*\*|\s*\([^)]*\))?$/i.test(label)) result.netIncome=values[0];
@@ -61,6 +63,12 @@ function reconciles(report,row,html,rows) {
   const anchors=finite(row.basicEPS) ? [{known:row.basicEPS,reported:report.basicEPS}] : rows.filter(r=>finite(r.basicEPS)).map(r=>({known:r.basicEPS,reported:reportedQuarterEPS(html,r.fiscalPeriodEnd)?.basicEPS}));
   return anchors.some(a=>finite(a.reported) && Math.abs(a.known-a.reported)<0.0051) && finite(row.netIncome) &&
     [1,1000,1e6].some(scale=>Math.abs(report.netIncome*scale-row.netIncome)<=Math.max(1,Math.abs(row.netIncome)*0.001));
+}
+// Exhibit 99 filenames vary by filer: "ex991_q425.htm" (Netflix),
+// "a8-kex991q4202509272025.htm" (Apple). Accept a plain filename (no path
+// segments) containing an ex99 / exhibit99 token.
+export function isEarningsExhibitName(name) {
+  return typeof name==='string' && /^[A-Za-z0-9_-]*?ex(?:hibit)?[-_]?99[\w.-]*\.html?$/i.test(name);
 }
 export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocument) {
   const output=rows.map(r=>({...r})), findings=[];
@@ -80,7 +88,7 @@ export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocu
         if(!documents.has(base)) {
           requests++;
           const listing=await fetchJSON(base+'index.json');
-          const names=(listing.directory?.item||[]).map(x=>x.name).filter(s=>/^ex(?:hibit)?[-_]?99[\w.-]*\.html?$/i.test(s)).slice(0,3);
+          const names=(listing.directory?.item||[]).map(x=>x.name).filter(isEarningsExhibitName).slice(0,3);
           const entries=[];
           for(const name of names) entries.push({url:base+name,html:await fetchDocument({filingDocumentUrl:base+name})});
           documents.set(base,entries);
