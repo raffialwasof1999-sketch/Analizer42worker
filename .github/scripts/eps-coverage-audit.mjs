@@ -108,6 +108,7 @@ for(const ticker of TICKERS){
     const audit=d.stockSplitAudit||{};
     r.q4DilutedEstimated=(audit.quarterFourDilutedEPS?.findings||[]).length;
     r.overSubrequestLimit=calls>SUBREQUEST_LIMIT;
+    r.blankReasons=d.blankReasons||[];
     // Free cash flow = operating cash flow - capital expenditures. When it is
     // missing, say which half is missing and which tags SEC holds for it.
     const fcfGap=q.slice(0,20).find(x=>!finite(x.freeCashFlow));
@@ -184,8 +185,13 @@ const lines=results.map(r=>{const p=problems(r);
 const clean=results.filter(r=>!problems(r).length).length;
 const summary=`${clean}/${results.length} tickers complete`;
 console.log(summary+'\n'+lines.join('\n'));
+// The sheet's "Data Notes" text for a representative sample.
+for(const t of ['AAPL','XOM','JPM','BRK-B','ORCL','META','ADBE','MCD','NKE','PLTR']){
+  const r=results.find(x=>x.ticker===t); if(!r?.blankReasons)continue;
+  console.log(`::warning title=Blank reasons ${t}::${r.blankReasons.map(x=>x.metric+': '+x.reason).join('%0A').replace(/::/g,'; ').slice(0,3900)||'none'}`);
+}
 const probe=results.filter(r=>r.inputProbe).map(r=>`${r.ticker}: ${r.inputProbe.join(' | ')}`);
-for(let i=0;i<probe.length;i+=6)console.log(`::notice title=ROIC input probe ${i/6+1}::${probe.slice(i,i+6).join('%0A').replace(/::/g,'; ').slice(0,3900)}`);
+for(let i=0;false&&i<probe.length;i+=6)console.log(`::notice title=ROIC input probe ${i/6+1}::${probe.slice(i,i+6).join('%0A').replace(/::/g,'; ').slice(0,3900)}`);
 const bal=results.filter(r=>r.balanceTags).map(r=>`${r.ticker} blank:${r.evBlank}%0A  ${r.balanceTags.join(', ')||'none'}`);
 if(false&&bal.length)console.log(`::notice title=Debt and cash tags::${bal.join('%0A').replace(/::/g,'; ')}`);
 const fcf=results.filter(r=>r.fcfMissing).map(r=>`${r.ticker}: missing ${r.fcfMissing}%0A  SEC: ${r.fcfTags.join(', ')||'none'}`);

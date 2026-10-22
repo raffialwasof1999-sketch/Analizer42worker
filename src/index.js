@@ -11,6 +11,7 @@ import { recoverSplitCrossingQ4BasicEPS } from './split-crossing-q4-basic-eps.js
 import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './basic-eps-share-basis.js';
 import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
 import { withPredecessor } from './sec-predecessor.js';
+import { blankReasons, blankReasonsCsv } from './blank-reasons.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage } from './sec-earnings-dates.js';
 
@@ -81,6 +82,8 @@ const TAGS = {
   // when an issuer reports none (Exxon, J&J, Pfizer, Nike...).
   interestExpense: ['InterestExpense','InterestExpenseNonoperating',
     'InterestExpenseDebt','InterestAndDebtExpense'],
+  // Net interest income (positive = income); EBIT subtracts it (Nike, GE).
+  netInterestIncome: ['InterestIncomeExpenseNonoperatingNet','InterestIncomeExpenseNet'],
   dilutedEPS: ['EarningsPerShareDiluted'],
   basicEPS: ['EarningsPerShareBasic'],
   basicShares: ['WeightedAverageNumberOfSharesOutstandingBasic'],
@@ -105,7 +108,10 @@ const TAGS = {
     'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
   ],
   // Banks report cash as "cash and due from banks".
-  cash: ['CashAndCashEquivalentsAtCarryingValue','CashAndDueFromBanks'],
+  // Last resort: cash including restricted cash, for issuers that file only
+  // that combined line at a period end (Chevron, Starbucks, GE).
+  cash: ['CashAndCashEquivalentsAtCarryingValue','CashAndDueFromBanks',
+    'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents'],
   totalAssets: ['Assets'],
   totalLiabilities: ['Liabilities'],
   shortTermDebt: ['ShortTermDebtCurrent','ShortTermBorrowings'],
@@ -259,6 +265,16 @@ const val = (records,end,kind,forms) =>
 
 const debt = secTotalDebt;
 
+// True when no positive current-debt figure of any kind was filed within
+// 400 days of `end`: a balance-sheet line would appear in the comparatives
+// of neighbouring filings, so its absence is evidence of no current debt.
+const CURRENT_DEBT_KEYS=['shortTermDebt','currentPortionLongTermDebt','debtCurrent','otherShortTermBorrowings'];
+function noCurrentDebtNear(map,end) {
+  const t=Date.parse(end);
+  return !CURRENT_DEBT_KEYS.some(k=>(map[k]||[]).some(f=>
+    !f.start && f.val>0 && Math.abs(Date.parse(f.end)-t)<=400*864e5));
+}
+
 // Banks report total net revenue after interest expense.
 const isBank = map =>
   (map.revenue||[]).some(f=>f.tag==='RevenuesNetOfInterestExpense');
@@ -270,6 +286,10 @@ function decorate(r,older,bank=false) {
   if (n(r.operatingIncome)===null && !bank &&
       n(r.incomeBeforeTax)!==null && n(r.interestExpense)!==null) {
     r.operatingIncome = r.incomeBeforeTax + r.interestExpense;
+    r.operatingIncomeBasis = 'EBIT';
+  } else if (n(r.operatingIncome)===null && !bank &&
+      n(r.incomeBeforeTax)!==null && n(r.netInterestIncome)!==null) {
+    r.operatingIncome = r.incomeBeforeTax - r.netInterestIncome;
     r.operatingIncomeBasis = 'EBIT';
   }
   r.freeCashFlow = minus(r.operatingCashFlow,r.capitalExpenditures);
@@ -355,7 +375,7 @@ function buildAnnual(map,ends,cik=null) {
       r[k] = get(k);
     }
 
-    const debtContext={cik,periodEnd:end,form:'10-K'};
+    const debtContext={cik,periodEnd:end,form:'10-K',noCurrentDebtNearby:noCurrentDebtNear(map,end)};
     r.totalDebt = debt(get,debtContext);
     const proof=auditedAbsentCurrentDebtProof(debtContext,get('longTermDebt'));
     if(proof && r.totalDebt===proof.noncurrent &&
@@ -473,7 +493,7 @@ function buildQuarterly(map,ends,cik=null) {
         r[k] = get(k);
       }
 
-      const debtContext={cik,periodEnd:end,form:isQ4?'10-K':'10-Q'};
+      const debtContext={cik,periodEnd:end,form:isQ4?'10-K':'10-Q',noCurrentDebtNearby:noCurrentDebtNear(map,end)};
       r.totalDebt = debt(get,debtContext);
       const proof=auditedAbsentCurrentDebtProof(debtContext,get('longTermDebt'));
       if(proof && r.totalDebt===proof.noncurrent &&
@@ -1024,6 +1044,24 @@ export default {
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
       // Script writes only the older 31/26 columns, so basic EPS needs an
       // independent column feed. 'NA' preserves row positions in sparse data.
+      const DEBT_KEYS=['totalDebt','longTermDebt','debtCurrent','longTermDebtTotal',
+        'shortTermDebt','currentPortionLongTermDebt','otherShortTermBorrowings'];
+      const reasons=blankReasons(finalQuarterly,{
+        companyName:facts.entityName||company.title||ticker,
+        bank:isBank(map),
+        hasEPSTags:Boolean(gaap.EarningsPerShareDiluted||gaap.EarningsPerShareBasic),
+        hasTag:key=>(key==='totalDebt'?DEBT_KEYS:[key]).some(k=>(map[k]||[]).length>0)
+      });
+      // Small CSV for the sheet's IMPORTDATA "Data Notes" tab.
+      if (url.searchParams.get('blankReasons') === '1') {
+        return new Response(blankReasonsCsv(reasons,ticker),{
+          headers:{
+            'content-type':'text/csv; charset=utf-8',
+            'access-control-allow-origin':'*',
+            'cache-control':'public, max-age=900'
+          }
+        });
+      }
       const basicCsv = url.searchParams.get('basicEpsCsv');
       if (basicCsv !== null) {
         if (!['annual','quarterly'].includes(basicCsv)) {
@@ -1085,6 +1123,8 @@ export default {
         sourceFactsSummary:secSourceSummary(facts,TAGS),
         // Set when history was merged from a verified predecessor registrant.
         predecessorIssuer:succession.predecessor,
+        // Why each sheet metric that will show "-" is blank.
+        blankReasons:reasons,
         sourceFactsAccess:{
           secRawFacts:'?ticker='+encodeURIComponent(ticker)+'&secRawFacts=1&offset=0&limit=100',
           secCatalog:'?ticker='+encodeURIComponent(ticker)+'&secCatalog=1',

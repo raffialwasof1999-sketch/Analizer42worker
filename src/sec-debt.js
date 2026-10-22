@@ -77,16 +77,22 @@ export function secTotalDebt(get,context={}) {
   const borrowings=short??nonnegative(get('otherShortTermBorrowings'));
   const ltdTotal=nonnegative(get('longTermDebtTotal'));
   const carrying=nonnegative(get('debtCarrying'));
-  const same=(a,b)=>a!==null&&b!==null&&Math.abs(a-b)<=Math.max(1,0.005*Math.max(a,b));
+  // "Equal" proves no current portion, so it is strict (0.5%). Confirming a
+  // sum against the carrying amount allows 2% for discounts and issuance
+  // costs; mistaking a total for the noncurrent line would be far larger.
+  const same=(a,b,p=0.005)=>a!==null&&b!==null&&Math.abs(a-b)<=Math.max(1,p*Math.max(a,b));
   if(long!==null) {
     if(debtCurrent!==null)return long+debtCurrent;
     if(borrowings!==null||current!==null)return long+(borrowings??0)+(current??0);
     if(same(ltdTotal,long)||same(carrying,long))return long;
+    // No current debt of any kind filed within ~13 months either side of
+    // this date (Meta, whose 10-Qs list only noncurrent notes).
+    if(context.noCurrentDebtNearby)return long;
     return auditedAbsentCurrentDebtProof(context,long)?.noncurrent??null;
   }
   if(ltdTotal!==null) {
     if(debtCurrent!==null)
-      return same(carrying,ltdTotal+debtCurrent)?ltdTotal+debtCurrent:null;
+      return same(carrying,ltdTotal+debtCurrent,0.02)?ltdTotal+debtCurrent:null;
     if(borrowings!==null&&current===null)return ltdTotal+borrowings;
     return null;
   }
