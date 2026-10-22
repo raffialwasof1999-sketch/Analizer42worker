@@ -103,8 +103,11 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
         ? annualEPS*source.val-
           originalQuarters.reduce((sum,q)=>sum+q.eps*q.shares,0)
         : q4.netIncome;
+      // Common earnings sit below GAAP net income by preferred dividends:
+      // about 11% for Wells Fargo in Q4 2020. The estimate itself uses the
+      // SEC EPS x shares figure, so this is only a sanity bound.
       if(!finite(q4Common)||Math.abs(q4Common-q4.netIncome)>
-        Math.max(1,Math.abs(q4.netIncome)*.10))continue;
+        Math.max(1,Math.abs(q4.netIncome)*.20))continue;
       const estimate=cents(q4Common/derivedShares);
       if(!finite(estimate)||!plausible(
         first.reduce((sum,q,i)=>sum+(
