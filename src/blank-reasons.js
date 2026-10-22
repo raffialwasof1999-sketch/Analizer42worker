@@ -12,7 +12,7 @@ const LABELS={
   operatingIncome:'operating income',incomeTaxExpense:'income tax expense',
   incomeBeforeTax:'pre-tax income',investedCapital:'invested capital',
   totalDebt:'total debt',cash:'cash',dilutedShares:'diluted share count',
-  stockholdersEquity:"shareholders' equity"
+  stockholdersEquity:"shareholders' equity",freeCashFlow:'free cash flow'
 };
 
 /**
@@ -108,6 +108,28 @@ export function blankReasons(quarters,context={}){
 
   // Enterprise value
   add('Enterprise Value',first(why('totalDebt',1),why('cash',1)));
+
+  // Historical performance: sums over consecutive quarters, as the sheet
+  // computes them (growth compares the latest 4 quarters with 4 quarters
+  // 1, 5 or 10 years earlier).
+  const gap=n=>{
+    const rows=q.slice(0,n);
+    for(let i=1;i<rows.length;i++){
+      const a=rows[i-1], b=rows[i];
+      if(a.fiscalYear*4+a.fiscalQuarter!==b.fiscalYear*4+b.fiscalQuarter+1)
+        return `SEC data skips a quarter between ${b.fiscalPeriodEnd} and ${a.fiscalPeriodEnd}.`;
+    }
+    return null;
+  };
+  for(const [years,n] of [[5,20],[10,40]]){
+    add(`Profit Margin (${years} Years)`,first(gap(n),why('revenue',n),why('netIncome',n)));
+    add(`Free Cash Flow Margin (${years} Years)`,first(gap(n),why('revenue',n),why('freeCashFlow',n)));
+    add(`Rev. Growth % (${years} Years)`,first(gap(n+4),why('revenue',n+4)));
+  }
+
+  // Cells the sheet does not calculate yet.
+  for(const metric of ['Price / FCF (5-Year Avg.)','Forward Dividend Yield','Net Acquisitions (5-Year Total)'])
+    add(metric,'Not calculated yet: this cell is a placeholder in the sheet.');
 
   return out;
 }
