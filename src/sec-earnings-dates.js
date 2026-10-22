@@ -25,7 +25,9 @@ export function filingRows(rec) {
       filed:rec.filingDate[i],
       end:rec.reportDate?.[i] || '',
       items:rec.items?.[i] || '',
-      accession:rec.accessionNumber?.[i] || ''
+      accession:rec.accessionNumber?.[i] || '',
+      // Set when a successor's history includes its predecessor's filings.
+      ...(rec.cik?.[i] ? {cik:rec.cik[i]} : {})
     });
   }
   return filings;
@@ -48,7 +50,8 @@ export async function fullQuarterFilingHistory(sub,quarters,cik,fetchJSON,maxArc
   const archives = (sub?.filings?.files || [])
     .filter(file=>
       file &&
-      file.name?.startsWith('CIK'+cik+'-submissions-') &&
+      [cik,sub?.predecessorCik].filter(Boolean).some(id=>
+        file.name?.startsWith('CIK'+String(id).padStart(10,'0')+'-submissions-')) &&
       /^CIK\d{10}-submissions-\d{3}\.json$/.test(file.name) &&
       isoDate(file.filingTo) &&
       file.filingTo >= oldest
@@ -73,7 +76,8 @@ export async function fullQuarterFilingHistory(sub,quarters,cik,fetchJSON,maxArc
             !Array.isArray(payload?.filingDate) ||
             !Array.isArray(payload?.accessionNumber))
           throw Error('invalid format');
-        return filingRows(payload);
+        const filer=Number(file.name.slice(3,13));
+        return filingRows(payload).map(row=>({...row,cik:filer}));
       } catch(error) {
         skipped.push({name:file.name,filingTo:file.filingTo,
           reason:String(error?.message||error).slice(0,160)});

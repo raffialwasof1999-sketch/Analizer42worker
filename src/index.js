@@ -10,6 +10,7 @@ import { deriveQ4BasicEPS } from './q4-basic-eps.js';
 import { recoverSplitCrossingQ4BasicEPS } from './split-crossing-q4-basic-eps.js';
 import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './basic-eps-share-basis.js';
 import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
+import { withPredecessor } from './sec-predecessor.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage } from './sec-earnings-dates.js';
 
@@ -660,7 +661,7 @@ export default {
 
       const cik = String(company.cik_str).padStart(10,'0');
 
-      const [facts,sub] = await Promise.all([
+      let [facts,sub] = await Promise.all([
         secFetch(`${SEC}/api/xbrl/companyfacts/CIK${cik}.json`),
         secFetch(`${SEC}/submissions/CIK${cik}.json`)
       ]);
@@ -727,6 +728,12 @@ export default {
           throw e;
         }
       }
+
+      // A successor registrant (holding-company reorganization) inherits its
+      // verified predecessor's history; see sec-predecessor.js.
+      const succession = await withPredecessor(facts,sub,cik,secFetch,SEC);
+      facts = succession.facts;
+      sub = succession.sub;
 
       const gaap = facts.facts?.['us-gaap'];
 
@@ -1028,6 +1035,8 @@ export default {
         // Additive source-input snapshots for future metrics without
         // changing the existing 32/25-column Google Sheets import.
         sourceFactsSummary:secSourceSummary(facts,TAGS),
+        // Set when history was merged from a verified predecessor registrant.
+        predecessorIssuer:succession.predecessor,
         sourceFactsAccess:{
           secRawFacts:'?ticker='+encodeURIComponent(ticker)+'&secRawFacts=1&offset=0&limit=100',
           secCatalog:'?ticker='+encodeURIComponent(ticker)+'&secCatalog=1',

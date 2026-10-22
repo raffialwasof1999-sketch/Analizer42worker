@@ -140,7 +140,8 @@ async function recoverReported(rows,filings,cik,fetchJSON,fetchDocument,estimate
       .sort((a,b)=>a.filed.localeCompare(b.filed)).slice(0,2);
     for(const filing of matches) {
       if(requests>=16) break;
-      const base=`https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${filing.accession.replaceAll('-','')}/`;
+      // A predecessor's filings live under its own CIK.
+      const base=`https://www.sec.gov/Archives/edgar/data/${Number(filing.cik||cik)}/${filing.accession.replaceAll('-','')}/`;
       try {
         if(!documents.has(base)) {
           requests++;
