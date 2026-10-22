@@ -21,9 +21,13 @@ function tables(html) {
   }
   return out;
 }
-export function reportedQuarterEPS(html,end) {
-  if(typeof html!=='string' || html.length>6_000_000) return null;
-  const found=[];
+// Parsing an exhibit is the costly step (Cloudflare caps worker CPU time),
+// and the same document is queried for many quarters, so each document's
+// income-statement tables are parsed once and cached for the invocation.
+const parsedCache=new Map();
+function statements(html) {
+  if(parsedCache.has(html)) return parsedCache.get(html);
+  const out=[];
   for(const table of tables(html)) {
     const summary=text(table);
     if(!/Three Months Ended/i.test(summary) || !/Earnings per (?:common )?share/i.test(summary) || /non[ -]?GAAP|adjusted earnings per/i.test(summary)) continue;
@@ -48,8 +52,23 @@ export function reportedQuarterEPS(html,end) {
       const g=owner(c); if(!g || !groups.includes(g)) return null;
       return date(g.value.replace(/,?\s*$/,'')+', '+year);
     };
+    const dated=[];
+    for(const row of rows) for(const c of row) {
+      const d=cellDate(c);
+      if(d && (date(c.value) ? groups.some(g=>c.start>=g.start && c.end<=g.end) : true)) dated.push({cell:c,date:d});
+    }
+    out.push({rows,dated});
+  }
+  if(parsedCache.size>=16) parsedCache.delete(parsedCache.keys().next().value);
+  parsedCache.set(html,out);
+  return out;
+}
+export function reportedQuarterEPS(html,end) {
+  if(typeof html!=='string' || html.length>6_000_000) return null;
+  const found=[];
+  for(const {rows,dated} of statements(html)) {
     let target=null; let ambiguous=false;
-    for(const row of rows) for(const c of row) if(cellDate(c)===end && (date(c.value) ? groups.some(g=>c.start>=g.start && c.end<=g.end) : true)) {
+    for(const {cell:c,date:d} of dated) if(d===end) {
       if(target && target.start!==c.start) { ambiguous=true; break; }
       target=c;
     }
@@ -99,17 +118,20 @@ export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocu
   const estimated=new Set(estimatedBasicPeriods);
   const estimatedDiluted=new Set(estimatedDilutedPeriods);
   const output=rows.map(r=>({...r})), findings=[];
-  const candidates=output.filter(r=>!finite(r.dilutedEPS)||!finite(r.basicEPS)||estimatedDiluted.has(r.fiscalPeriodEnd));
+  // Estimated Q4 diluted EPS is only worth a lookup in the newest 24
+  // quarters, which feed P/E (TTM), the 5-year P/E and PEG.
+  const recent=new Set(output.slice(0,24).map(r=>r.fiscalPeriodEnd));
+  const candidates=output.filter(r=>!finite(r.dilutedEPS)||!finite(r.basicEPS)||(estimatedDiluted.has(r.fiscalPeriodEnd)&&recent.has(r.fiscalPeriodEnd)));
   let requests=0;
   const documents=new Map();
   for(const row of candidates) {
-    if(requests>=24) break;
+    if(requests>=16) break;
     const end=row.fiscalPeriodEnd;
     const matches=filings.filter(f=>f.form==='8-K' && /(?:^|[,;\s])2\.02(?:$|[,;\s])/.test(f.items||'') &&
       /^\d{10}-\d{2}-\d{6}$/.test(f.accession) && f.filed>=end && (Date.parse(f.filed)-Date.parse(end))/86400000<=105)
       .sort((a,b)=>a.filed.localeCompare(b.filed)).slice(0,2);
     for(const filing of matches) {
-      if(requests>=24) break;
+      if(requests>=16) break;
       const base=`https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${filing.accession.replaceAll('-','')}/`;
       try {
         if(!documents.has(base)) {
@@ -120,7 +142,7 @@ export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocu
           // Every document counts against the same budget as directory
           // listings: Cloudflare caps subrequests per worker invocation.
           for(const name of names) {
-            if(requests>=24) break;
+            if(requests>=16) break;
             requests++;
             entries.push({url:base+name,html:await fetchDocument({filingDocumentUrl:base+name})});
           }
