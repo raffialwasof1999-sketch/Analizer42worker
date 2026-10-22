@@ -77,6 +77,10 @@ const TAGS = {
     'IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
     'IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments'
   ],
+  // EBIT = pretax income + interest expense stands in for operating income
+  // when an issuer reports none (Exxon, J&J, Pfizer, Nike...).
+  interestExpense: ['InterestExpense','InterestExpenseNonoperating',
+    'InterestExpenseDebt','InterestAndDebtExpense'],
   dilutedEPS: ['EarningsPerShareDiluted'],
   basicEPS: ['EarningsPerShareBasic'],
   basicShares: ['WeightedAverageNumberOfSharesOutstandingBasic'],
@@ -255,7 +259,19 @@ const val = (records,end,kind,forms) =>
 
 const debt = secTotalDebt;
 
-function decorate(r,older) {
+// Banks report total net revenue after interest expense.
+const isBank = map =>
+  (map.revenue||[]).some(f=>f.tag==='RevenuesNetOfInterestExpense');
+
+function decorate(r,older,bank=false) {
+  // No reported operating income: use EBIT (pretax income + interest
+  // expense), the usual substitute. Not for banks, whose interest expense
+  // is their cost of goods and whose ROIC is not meaningful.
+  if (n(r.operatingIncome)===null && !bank &&
+      n(r.incomeBeforeTax)!==null && n(r.interestExpense)!==null) {
+    r.operatingIncome = r.incomeBeforeTax + r.interestExpense;
+    r.operatingIncomeBasis = 'EBIT';
+  }
   r.freeCashFlow = minus(r.operatingCashFlow,r.capitalExpenditures);
   r.profitMargin = ratio(r.netIncome,r.revenue);
   r.freeCashFlowMargin = ratio(r.freeCashFlow,r.revenue);
@@ -352,8 +368,9 @@ function buildAnnual(map,ends,cik=null) {
     return r;
   });
 
+  const bank = isBank(map);
   for (let i=raw.length-1;i>=0;i--) {
-    decorate(raw[i],raw[i+1]);
+    decorate(raw[i],raw[i+1],bank);
   }
 
   for (let i=0;i<raw.length;i++) {
@@ -465,7 +482,7 @@ function buildQuarterly(map,ends,cik=null) {
         r.longTermDebt=r.longTermDebt??proof.noncurrent;
         r.debtEvidence=proof;
       }
-      decorate(r,null);
+      decorate(r,null,isBank(map));
       rows.push(r);
     }
   }
