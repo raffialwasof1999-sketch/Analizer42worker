@@ -57,6 +57,11 @@ for(const ticker of TICKERS){
     const audit=d.stockSplitAudit||{};
     r.q4DilutedEstimated=(audit.quarterFourDilutedEPS?.findings||[]).length;
     r.overSubrequestLimit=calls>SUBREQUEST_LIMIT;
+    // Why each recent quarter lacks EPS: the row plus every audit finding
+    // that names its period end.
+    const findingsFor=end=>JSON.stringify(audit).match(new RegExp('\\{[^{}]*"'+end+'"[^{}]*\\}','g'))||[];
+    r.epsGapDetail=q24.filter(x=>!finite(x.dilutedEPS)||!finite(x.basicEPS)).map(x=>
+      `${x.fiscalPeriodEnd} Q${x.fiscalQuarter} NI=${x.netIncome} basic=${x.basicEPS} diluted=${x.dilutedEPS} shares=${x.dilutedShares} :: ${findingsFor(x.fiscalPeriodEnd).join(' ').slice(0,500)}`);
   }catch(e){r.error=String(e.message||e).slice(0,160);r.subrequests=calls;}
   finally{globalThis.fetch=realFetch;}
   results.push(r);
@@ -81,6 +86,8 @@ const lines=results.map(r=>{const p=problems(r);
 const clean=results.filter(r=>!problems(r).length).length;
 const summary=`${clean}/${results.length} tickers complete`;
 console.log(summary+'\n'+lines.join('\n'));
+const detail=results.filter(r=>r.epsGapDetail?.length).map(r=>r.ticker+'%0A  '+r.epsGapDetail.join('%0A  '));
+if(detail.length)console.log(`::notice title=EPS gap detail::${detail.join('%0A').replace(/::/g,'; ')}`);
 // Annotation text survives where logs cannot be downloaded.
 console.log(`::notice title=EPS coverage: ${summary}::${lines.join('%0A')}`);
 if(process.env.GITHUB_STEP_SUMMARY)appendFileSync(process.env.GITHUB_STEP_SUMMARY,
