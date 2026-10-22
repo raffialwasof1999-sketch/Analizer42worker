@@ -3,7 +3,9 @@
 Goal: keep the spreadsheet's existing Refresh flow and dashboard untouched, while managing its bound Apps Script source alongside the SEC Worker in GitHub.
 
 ## Status
-This is preparation only. The owner has supplied the target Script ID, but the project's identity, parent spreadsheet, and API permissions have not yet been verified through an authenticated Apps Script read. No Apps Script source has been imported and **nothing is deployed** to the Google Apps Script project yet. Do not run an upload against an empty source folder.
+The live source is now copied into `apps-script/` (2026-10-22): `Code.gs` (AA_SEC_V3), `TickerSearch.gs` and `TickerSearch2.html`, each checked against the live project editor by SHA-256 (line endings normalized to LF). It was reviewed before committing: no keys, tokens or personal data; the only hosts are this repository's public Worker and Nasdaq's public symbol directory.
+
+Sync is still **manual and one-way**: the live Apps Script project remains the copy the spreadsheet runs. After editing the script in Google's editor, paste the changed file into `apps-script/` in the same change, so GitHub stays identical. Nothing uploads GitHub's copy to Google; the workflows below run only on this branch or by hand, and the upload check re-uploads the project's own existing code after a versioned backup. `appsscript.json` (the manifest) is not yet imported.
 
 ## Target supplied by the owner
 - Script ID: `1OjO2rJxCB6jXC5BMeb-JxyvUx4pcdzwcJh16eHFzJIfGQvo3GJW8doab`
