@@ -4,7 +4,9 @@
  */
 const finite = v => typeof v === 'number' && Number.isFinite(v);
 const text = s => s.replace(/<[^>]*>/g,' ').replace(/&#x([\da-f]+);/gi,(_,v)=>String.fromCodePoint(parseInt(v,16))).replace(/&#(\d+);/g,(_,v)=>String.fromCodePoint(Number(v))).replace(/&nbsp;|&amp;|&minus;/gi,v=>({'&nbsp;':' ','&amp;':'&','&minus;':'-'}[v.toLowerCase()])).replace(/\s+/g,' ').trim();
-const number = s => /^\(?-?\d[\d,]*(?:\.\d+)?\)?$/.test(s.trim()) ? Number(s.replace(/[,()]/g,''))*(s.includes('(')?-1:1) : null;
+// Accepts "1,234", "(0.06)" and a currency sign in the same cell, as
+// Microsoft prints it: "$27,233", "$ (0.06)", "($0.06)".
+const number = s => { const t=s.replace(/\$/g,'').replace(/\s+/g,''); return /^\(?-?\d[\d,]*(?:\.\d+)?\)?$/.test(t) ? Number(t.replace(/[,()]/g,''))*(t.includes('(')?-1:1) : null; };
 const months = 'January February March April May June July August September October November December'.split(' ');
 function date(s) {
   const m=s.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s*(\d{1,2}),?\s*(20\d\d)/i);
@@ -32,9 +34,22 @@ export function reportedQuarterEPS(html,end) {
         const cell={start:col,end:col+width,value:text(c[2])}; col+=width; return cell;
       });
     });
-    const groups=rows.flat().filter(c=>/^Three Months Ended$/i.test(c.value));
+    // Period group headers: "Three Months Ended" alone (dates in the row
+    // below), or "Three Months Ended June 30," (years alone in the row below,
+    // as Microsoft lays it out). Twelve-month groups are tracked so that a
+    // year cell under them is never taken for a quarter.
+    const periodGroups=rows.flat().filter(c=>/^(?:Three|Six|Nine|Twelve) Months Ended\b/i.test(c.value));
+    const groups=periodGroups.filter(g=>/^Three Months Ended\b/i.test(g.value));
+    const owner=c=>periodGroups.find(g=>c.start>=g.start && c.end<=g.end) ||
+      periodGroups.filter(g=>g.start<=c.start).sort((a,b)=>b.start-a.start)[0];
+    const cellDate=c=>{
+      const full=date(c.value); if(full) return full;
+      const year=c.value.match(/^(20\d\d)$/)?.[1]; if(!year) return null;
+      const g=owner(c); if(!g || !groups.includes(g)) return null;
+      return date(g.value.replace(/,?\s*$/,'')+', '+year);
+    };
     let target=null; let ambiguous=false;
-    for(const row of rows) for(const c of row) if(date(c.value)===end && groups.some(g=>c.start>=g.start && c.end<=g.end)) {
+    for(const row of rows) for(const c of row) if(cellDate(c)===end && (date(c.value) ? groups.some(g=>c.start>=g.start && c.end<=g.end) : true)) {
       if(target && target.start!==c.start) { ambiguous=true; break; }
       target=c;
     }
