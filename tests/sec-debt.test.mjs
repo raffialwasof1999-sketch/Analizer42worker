@@ -34,3 +34,33 @@ test('do not accept negative, infinite or nonnumeric debt as reported',()=>{
   assert.equal(run({longTermDebt:1000,shortTermDebt:Infinity}),null);
   assert.equal(run({longTermDebt:1000,shortTermDebt:'120'}),null);
 });
+
+// Latest-quarter balance-sheet tags as filed (billions), from the coverage audit.
+const B=1e9;
+test('DebtCurrent plus noncurrent debt (Intel, UnitedHealth)',()=>{
+  assert.equal(run({longTermDebt:48.55*B,debtCurrent:1.99*B}),50.54*B);
+});
+test('DebtCurrent is not added on top of its own components',()=>{
+  assert.equal(run({longTermDebt:100,debtCurrent:30,currentPortionLongTermDebt:20,shortTermDebt:10}),130);
+});
+test('commercial paper counts when no short-term borrowings line exists (Home Depot)',()=>{
+  assert.equal(run({longTermDebt:43.95*B,currentPortionLongTermDebt:4.70*B,otherShortTermBorrowings:4.25*B}),52.90*B);
+});
+test('short-term borrowings line wins over a commercial paper component (PepsiCo)',()=>{
+  assert.equal(run({longTermDebt:42.66*B,shortTermDebt:9.22*B,otherShortTermBorrowings:4.80*B}),51.88*B);
+});
+test('noncurrent only, proven by total long-term debt or carrying amount (Meta, McDonald\'s)',()=>{
+  assert.equal(run({longTermDebt:83.66*B,longTermDebtTotal:83.66*B,debtCarrying:84.00*B}),83.66*B);
+  assert.equal(run({longTermDebt:39.86*B,debtCarrying:39.90*B}),39.86*B);
+  assert.equal(run({longTermDebt:39.86*B,debtCarrying:45*B}),null);   // unexplained gap: unknown
+});
+test('unclassified bank long-term debt plus short-term borrowings (Bank of America)',()=>{
+  assert.equal(run({longTermDebtTotal:339.86*B,otherShortTermBorrowings:59.98*B}),399.84*B);
+});
+test('ambiguous LongTermDebt with DebtCurrent needs the carrying amount (Tesla vs Adobe)',()=>{
+  assert.equal(run({longTermDebtTotal:7.72*B,debtCurrent:1.34*B,debtCarrying:9.08*B}),9.06*B);
+  assert.equal(run({longTermDebtTotal:4.77*B,debtCurrent:1.60*B}),null);
+});
+test('a combined long- and short-term total is used directly (GE)',()=>{
+  assert.equal(run({totalDebt:19.33*B,debtCurrent:2.33*B,longTermDebt:16.99*B}),19.33*B);
+});

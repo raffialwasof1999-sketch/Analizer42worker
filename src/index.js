@@ -100,21 +100,35 @@ const TAGS = {
     'StockholdersEquity',
     'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
   ],
-  cash: ['CashAndCashEquivalentsAtCarryingValue'],
+  // Banks report cash as "cash and due from banks".
+  cash: ['CashAndCashEquivalentsAtCarryingValue','CashAndDueFromBanks'],
   totalAssets: ['Assets'],
   totalLiabilities: ['Liabilities'],
   shortTermDebt: ['ShortTermDebtCurrent','ShortTermBorrowings'],
   longTermDebt: [
     'LongTermDebtNoncurrent',
     'LongTermDebtAndFinanceLeaseObligationsNoncurrent',
-    'LongTermDebtAndCapitalLeaseObligationsNoncurrent'
+    'LongTermDebtAndCapitalLeaseObligationsNoncurrent',
+    // Noncurrent by its taxonomy definition (Home Depot, Exxon, AT&T...).
+    'LongTermDebtAndCapitalLeaseObligations'
   ],
+  // All current debt in one line: current maturities plus borrowings.
+  debtCurrent: ['DebtCurrent'],
+  // Short-term borrowings filed without a ShortTermBorrowings line
+  // (Bank of America; Home Depot's commercial paper).
+  otherShortTermBorrowings: ['OtherShortTermBorrowings','CommercialPaper'],
+  // Ambiguous in practice: total long-term debt for some issuers, the
+  // noncurrent line for others. Used only with corroboration.
+  longTermDebtTotal: ['LongTermDebt'],
+  debtCarrying: ['DebtInstrumentCarryingAmount'],
   currentPortionLongTermDebt: [
     'LongTermDebtCurrent',
     'LongTermDebtAndCapitalLeaseObligationsCurrent',
     'LongTermDebtAndFinanceLeaseObligationsCurrent'
   ],
   totalDebt: [
+    // Long- and short-term debt in one figure (GE, Goldman Sachs).
+    'DebtLongtermAndShorttermCombinedAmount',
     'LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities',
     'LongTermDebtAndFinanceLeaseObligationsIncludingCurrentMaturities'
   ],
@@ -125,7 +139,8 @@ const TAGS = {
 
 const INSTANT = new Set([
   'stockholdersEquity','cash','totalAssets','totalLiabilities',
-  'shortTermDebt','longTermDebt','currentPortionLongTermDebt','totalDebt'
+  'shortTermDebt','longTermDebt','currentPortionLongTermDebt','totalDebt',
+  'debtCurrent','otherShortTermBorrowings','longTermDebtTotal','debtCarrying'
 ]);
 
 const UNITS = {
