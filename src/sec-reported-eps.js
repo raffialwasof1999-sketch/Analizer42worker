@@ -94,10 +94,12 @@ export function isEarningsExhibitName(name) {
 }
 // estimatedBasicPeriods: period ends whose basic EPS the worker estimated
 // rather than read from SEC; a reported exhibit value replaces the estimate.
-export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocument,estimatedBasicPeriods=[]) {
+// estimatedDilutedPeriods: likewise for diluted EPS.
+export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocument,estimatedBasicPeriods=[],estimatedDilutedPeriods=[]) {
   const estimated=new Set(estimatedBasicPeriods);
+  const estimatedDiluted=new Set(estimatedDilutedPeriods);
   const output=rows.map(r=>({...r})), findings=[];
-  const candidates=output.filter(r=>!finite(r.dilutedEPS)||!finite(r.basicEPS));
+  const candidates=output.filter(r=>!finite(r.dilutedEPS)||!finite(r.basicEPS)||estimatedDiluted.has(r.fiscalPeriodEnd));
   let requests=0;
   const documents=new Map();
   for(const row of candidates) {
@@ -124,11 +126,11 @@ export async function recoverSECReportedEPS(rows,filings,cik,fetchJSON,fetchDocu
         const {report,url}=reports[0];
         // Preserve existing facts; this fallback only fills verified gaps.
         const filled=[];
-        for(const key of ['basicEPS','dilutedEPS']) if(!finite(row[key]) || (key==='basicEPS' && estimated.has(end) && row[key]!==report[key])) {row[key]=report[key];filled.push(key);}
+        for(const key of ['basicEPS','dilutedEPS']) if(!finite(row[key]) || (key==='basicEPS' && estimated.has(end) && row[key]!==report[key]) || (key==='dilutedEPS' && estimatedDiluted.has(end) && row[key]!==report[key])) {row[key]=report[key];filled.push(key);}
         findings.push({periodEnd:end,status:'recovered',fields:filled,accession:filing.accession,filed:filing.filed,source:url,basis:estimated.has(end)?'estimated Q4 basic EPS within 3% of reported (same share basis); quarterly net income matches':'matches normalized basic EPS and quarterly net income'});
         break;
       } catch(error) {findings.push({periodEnd:end,status:'unavailable',accession:filing.accession,error:String(error.message).slice(0,160)});}
     }
   }
-  return {rows:output,audit:{method:'SEC 8-K GAAP earnings exhibits; exact quarter and normalized basic EPS anchor required',filingsInspected:requests,unfilledQuarters:output.filter(r=>!finite(r.basicEPS)||!finite(r.dilutedEPS)).length,findings}};
+  return {rows:output,audit:{method:'SEC 8-K GAAP earnings exhibits; exact quarter and normalized basic EPS anchor required',filingsInspected:requests,unfilledQuarters:output.filter(r=>!finite(r.basicEPS)||!finite(r.dilutedEPS)).length,estimatedDilutedRemaining:output.filter(r=>estimatedDiluted.has(r.fiscalPeriodEnd)&&!findings.some(f=>f.periodEnd===r.fiscalPeriodEnd&&f.status==='recovered')).map(r=>r.fiscalPeriodEnd),findings}};
 }

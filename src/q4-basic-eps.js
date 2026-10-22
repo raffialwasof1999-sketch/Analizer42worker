@@ -11,17 +11,20 @@ const days=(start,end)=>(Date.parse(end+'T00:00:00Z')-Date.parse(start+'T00:00:0
 const plausible=(a,b)=>Math.abs(a-b)<=Math.max(0.035,Math.abs(b)*0.055);
 const cents=x=>Math.round((x+Number.EPSILON)*100)/100;
 
-export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[]){
+// The same method serves diluted EPS: pass {eps:'dilutedEPS',
+// shares:'dilutedShares'} with diluted weighted-share and EPS SEC facts.
+export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[],metric={eps:'basicEPS',shares:'basicShares'}){
+  const EPS=metric.eps, SHARES=metric.shares;
   const findings=[];
   if(!Array.isArray(quarters)||!Array.isArray(years)||!Array.isArray(basicShareFacts)||!Array.isArray(annualEPSFacts))
     throw Error('Q4 basic EPS requires SEC observations');
   for(const q4 of quarters.filter(q=>q.fiscalQuarter===4)){
-    if(finite(q4.basicEPS))continue;
+    if(finite(q4[EPS]))continue;
     const yr=years.find(a=>a.fiscalYear===q4.fiscalYear &&
       a.fiscalPeriodEnd===q4.fiscalPeriodEnd);
     const first=[1,2,3].map(q=>quarters.find(r=>
       r.fiscalYear===q4.fiscalYear&&r.fiscalQuarter===q));
-    if(!yr||!finite(yr.basicEPS)||!finite(yr.netIncome)||
+    if(!yr||!finite(yr[EPS])||!finite(yr.netIncome)||
       !finite(q4.netIncome)||first.some(q=>!q))continue;
     // A newer 10-K may restate older years onto a post-split share basis.
     // Select a SAME-ACCESSION annual basic EPS and basic-share pair whose
@@ -36,7 +39,7 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
         ? annualEPSFacts.filter(e=>e.accn===source.accn &&
             e.start===source.start && e.end===source.end &&
             ['10-K','10-K/A'].includes(e.form) && finite(e.val))
-        : [{val:yr.basicEPS}]; // Compatibility for callers with no fact provenance.
+        : [{val:yr[EPS]}]; // Compatibility for callers with no fact provenance.
       return annualValues.filter(e=>
         Math.abs(yr.netIncome-e.val*source.val)<=
           Math.max(1,Math.abs(yr.netIncome)*.30)
@@ -77,12 +80,12 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
       });
       const provenQuarters=originalQuarters.every(Boolean);
       if(!provenQuarters && !first.every(q=>
-        finite(q.netIncome)&&finite(q.basicEPS)&&finite(q.basicShares)&&
-        q.basicShares>0&&plausible(q.netIncome/q.basicShares,q.basicEPS)&&
-        Math.abs(q.basicShares/source.val-1)<=.25))continue;
+        finite(q.netIncome)&&finite(q[EPS])&&finite(q[SHARES])&&
+        q[SHARES]>0&&plausible(q.netIncome/q[SHARES],q[EPS])&&
+        Math.abs(q[SHARES]/source.val-1)<=.25))continue;
       const quarterShares=provenQuarters
         ? originalQuarters.map(q=>q.shares)
-        : first.map(q=>q.basicShares);
+        : first.map(q=>q[SHARES]);
       const derivedShares=(source.val*allDays-
         quarterShares.reduce((sum,shares,i)=>sum+shares*qdays[i],0))/qdays[3];
       if(!finite(derivedShares)||derivedShares<=0||
@@ -100,17 +103,17 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
       const estimate=cents(q4Common/derivedShares);
       if(!finite(estimate)||!plausible(
         first.reduce((sum,q,i)=>sum+(
-          provenQuarters?originalQuarters[i].eps:q.basicEPS),estimate),
+          provenQuarters?originalQuarters[i].eps:q[EPS]),estimate),
         annualEPS))continue;
       chosen={source,annualEPS,estimate,method:provenQuarters?'SEC-basic-EPS-weighted-shares-common-earnings':'SEC-net-income-weighted-shares'};
       break;
     }
     if(!chosen)continue;
-    q4.basicEPS=chosen.estimate;
+    q4[EPS]=chosen.estimate;
     findings.push({fiscalYear:q4.fiscalYear,
-      fiscalPeriodEnd:q4.fiscalPeriodEnd,basicEPS:chosen.estimate,
+      fiscalPeriodEnd:q4.fiscalPeriodEnd,[EPS]:chosen.estimate,metric:EPS,
       sourceAnnualAccession:chosen.source.accn||null,
-      sourceAnnualReportedBasicEPS:chosen.annualEPS,
+      sourceAnnualReportedBasicEPS:chosen.annualEPS,sourceAnnualReportedEPS:chosen.annualEPS,
       estimationMethod:chosen.method,
       status:'estimated-from-SEC-reported-basic-shares-and-net-income',
       explicitlyReported:false});

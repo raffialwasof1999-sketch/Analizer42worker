@@ -876,6 +876,11 @@ export default {
       assignQuarterDates(quarters,earningsHistory.filings);
       coverShares(quarters,facts);
       const q4BasicEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,map.basicShares,map.basicEPS);
+      // Most issuers never file a standalone fiscal Q4 diluted EPS. Estimate it
+      // the same guarded way from the 10-K and Q1-Q3 diluted EPS and shares;
+      // a readable earnings exhibit replaces the estimate further below.
+      const q4DilutedEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,
+        map.dilutedShares,map.dilutedEPS,{eps:'dilutedEPS',shares:'dilutedShares'});
 
       const quarterlyFinancials =
         outputRows(quarters,QUARTER_FIELDS);
@@ -942,7 +947,7 @@ export default {
       ];
       const reportedEPS=await recoverSECReportedEPS(
         q4SplitRecovery.rows,earningsHistory.filings,cik,secFetch,limitedSecDocument,
-        estimatedBasicPeriods
+        estimatedBasicPeriods,q4DilutedEPSEvidence.findings.map(f=>f.fiscalPeriodEnd)
       );
       const finalQuarterly=reportedEPS.rows;
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
@@ -971,6 +976,7 @@ export default {
       };
       stockSplitAudit.quarterlyDilutedEPSAlignment=dilutedAlignment.findings;
       stockSplitAudit.quarterFourBasicEPS=q4BasicEPSEvidence;
+      stockSplitAudit.quarterFourDilutedEPS=q4DilutedEPSEvidence;
       stockSplitAudit.splitCrossingQ4BasicEPS=q4SplitRecovery.findings;
       stockSplitAudit.reportedQuarterEPS=reportedEPS.audit;
       stockSplitAudit.companyFactsNormalization={
