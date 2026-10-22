@@ -11,18 +11,20 @@ changes or "↻ Refresh SEC Data" is ticked.
 | `TickerSearch.gs` | "Ticker Search" menu: loads Nasdaq Trader's public symbol lists and sets Analyzer!B2 |
 | `TickerSearch2.html` | The ticker search sidebar |
 
-## Keeping GitHub and Google in sync
+## How changes reach the sheet
 
-The live copy is the one in Google's Apps Script editor; the sheet does not
-run code from GitHub. Sync is manual:
+GitHub is the source of truth. Change a file here in a pull request; the
+pull request is syntax-checked and previewed, and **merging deploys it to
+the live script automatically** (backup first, verified after). Workflow:
+`.github/workflows/apps-script-deploy.yml`.
 
-1. Edit and save in the Apps Script editor (Extensions → Apps Script).
-2. Paste the changed file over the copy here, in the same pull request as
-   any related Worker change.
+Avoid editing in Google's Apps Script editor: if the live script no longer
+matches GitHub, the next deploy stops instead of overwriting it, and the
+edit has to be copied here first.
 
-Cells the refresh rewrites every time — B7 and the notes above — must be
+Cells the refresh rewrites every time (B7 and the notes above) must be
 changed **in the script**, or the next refresh reverts them. Everything
-else on the Analyzer tab (formulas, notes in columns H–J and rows 14–29)
+else on the Analyzer tab (formulas, notes in columns H-J and rows 14-29)
 is left alone.
 
-See `docs/apps-script-sync.md` for the planned automated sync.
+See `docs/apps-script-sync.md` for details.

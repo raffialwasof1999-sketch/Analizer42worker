@@ -5,7 +5,13 @@ Goal: keep the spreadsheet's existing Refresh flow and dashboard untouched, whil
 ## Status
 The live source is now copied into `apps-script/` (2026-10-22): `Code.gs` (AA_SEC_V3), `TickerSearch.gs` and `TickerSearch2.html`, each checked against the live project editor by SHA-256 (line endings normalized to LF). It was reviewed before committing: no keys, tokens or personal data; the only hosts are this repository's public Worker and Nasdaq's public symbol directory.
 
-Sync is still **manual and one-way**: the live Apps Script project remains the copy the spreadsheet runs. After editing the script in Google's editor, paste the changed file into `apps-script/` in the same change, so GitHub stays identical. Nothing uploads GitHub's copy to Google; the workflows below run only on this branch or by hand, and the upload check re-uploads the project's own existing code after a versioned backup. `appsscript.json` (the manifest) is not yet imported.
+**Deployment is automatic** (`.github/workflows/apps-script-deploy.yml`): GitHub is the source of truth.
+
+- **Pull request** touching `apps-script/`: every `.gs` file is syntax-checked, and a read-only preview names the files merging will change (or warns that the live script was edited outside GitHub).
+- **Merge to main**: the workflow checks the live script still matches the previously deployed GitHub version, saves a numbered backup in Google (Project history), uploads `apps-script/`, and reads it back to confirm an exact match. The live `appsscript.json` manifest is kept as is.
+- **Edited in Google's editor instead?** The deploy refuses to overwrite and names the differing files. Copy the live file into `apps-script/` first, or run the workflow manually with "overwrite live".
+
+It uses the `CLASPRC_JSON` repository secret already authorized on 2026-10-21. `appsscript.json` itself is not in GitHub.
 
 ## Target supplied by the owner
 - Script ID: `1OjO2rJxCB6jXC5BMeb-JxyvUx4pcdzwcJh16eHFzJIfGQvo3GJW8doab`

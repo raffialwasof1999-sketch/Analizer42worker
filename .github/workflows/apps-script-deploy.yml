@@ -1,0 +1,95 @@
+name: Deploy Active Analyzer Apps Script
+
+# apps-script/ on main is the source of truth for the live script bound to
+# the Active Analyzer sheet. Pull requests get a syntax check and a
+# read-only preview; merging deploys. See docs/apps-script-sync.md.
+on:
+  pull_request:
+    branches: [main]
+    paths: ['apps-script/**', 'scripts/apps-script-deploy.mjs', '.github/workflows/apps-script-deploy.yml']
+  push:
+    branches: [main]
+    paths: ['apps-script/**']
+  workflow_dispatch:
+    inputs:
+      overwrite_live:
+        description: Replace the live script even if it was edited outside GitHub (a backup is still saved first)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: active-analyzer-apps-script-deploy
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax-check every .gs file
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gs"
+          for f in apps-script/*.gs; do
+            cp "$f" "$RUNNER_TEMP/gs/$(basename "$f" .gs).js"
+            node --check "$RUNNER_TEMP/gs/$(basename "$f" .gs).js"
+            echo "OK $f"
+          done
+      - name: Preview what merging will deploy (read-only)
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          MODE: check
+          NEXT_DIR: apps-script
+          PREVIOUS_DIR: ${{ runner.temp }}/previous
+        run: |
+          set -euo pipefail
+          mkdir -p "$PREVIOUS_DIR"
+          git archive "origin/${{ github.base_ref }}" apps-script 2>/dev/null | tar -x -C "$PREVIOUS_DIR" --strip-components=1 || true
+          node scripts/apps-script-deploy.mjs
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax-check every .gs file
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gs"
+          for f in apps-script/*.gs; do
+            cp "$f" "$RUNNER_TEMP/gs/$(basename "$f" .gs).js"
+            node --check "$RUNNER_TEMP/gs/$(basename "$f" .gs).js"
+          done
+      - name: Deploy to the live Apps Script
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          NEXT_DIR: apps-script
+          PREVIOUS_DIR: ${{ runner.temp }}/previous
+          OVERWRITE: ${{ github.event.inputs.overwrite_live || 'false' }}
+          NOTE: commit ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$PREVIOUS_DIR"
+          # The version that was live-deployed before this push. A manual run
+          # compares against main as it is now.
+          ref="${BEFORE:-HEAD}"
+          case "$ref" in 0000000000000000000000000000000000000000) ref=HEAD;; esac
+          git archive "$ref" apps-script 2>/dev/null | tar -x -C "$PREVIOUS_DIR" --strip-components=1 || true
+          node scripts/apps-script-deploy.mjs
