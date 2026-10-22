@@ -1,0 +1,40 @@
+name: Verify EPS import mapping without exporting source
+on:
+  push:
+    branches: [audit/eps-apps-script-import]
+    paths: [.github/workflows/eps-import-mapping-check.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify authorized private Apps Script import mapping using saved GitHub connection
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {readProject,SafeError} from './scripts/apps-script-readonly.mjs';
+          try {
+            const raw=process.env.CLASPRC_JSON; delete process.env.CLASPRC_JSON;
+            const project=await readProject(raw);
+            const source=project.files.filter(f=>f.type==='SERVER_JS').map(f=>f.source).join('\n');
+            const arrays=[...source.matchAll(/\[([^\[\]]{0,8000})\]/g)].map(m=>m[1]);
+            const quarterly=arrays.filter(s=>/\.fiscalQuarter\b/.test(s)&&/\.dilutedEPS\b/.test(s));
+            const quarterlyMapping=quarterly.some(s=>s.indexOf('.fiscalYear')<s.indexOf('.fiscalQuarter')&&s.indexOf('.fiscalQuarter')<s.indexOf('.fiscalPeriodEnd')&&s.indexOf('.fiscalPeriodEnd')<s.indexOf('.revenue')&&s.indexOf('.revenue')<s.indexOf('.netIncome')&&s.indexOf('.netIncome')<s.indexOf('.dilutedEPS')&&s.indexOf('.dilutedEPS')<s.indexOf('.operatingCashFlow'));
+            console.log(JSON.stringify({
+              exactProjectVerified:true,
+              workerEndpointReferenced:source.includes('analyzer42-sec.raffialwasof-1999.workers.dev'),
+              dilutedEPSImported:source.includes('dilutedEPS'),
+              basicEPSImported:source.includes('basicEPS')||source.includes('basicEpsCsv'),
+              quarterlyDilutedMappingInExpectedOrder:quarterlyMapping,
+              quarterlyFinancialsConsumed:source.includes('quarterlyFinancials'),
+              noSourceExported:true
+            }));
+          } catch(error) {console.error(error instanceof SafeError?error.message:'Verification failed; private details suppressed.');process.exitCode=1;}
+          NODE
