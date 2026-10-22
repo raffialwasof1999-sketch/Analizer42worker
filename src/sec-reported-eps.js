@@ -4,7 +4,9 @@
  */
 const finite = v => typeof v === 'number' && Number.isFinite(v);
 const text = s => s.replace(/<[^>]*>/g,' ').replace(/&#x([\da-f]+);/gi,(_,v)=>String.fromCodePoint(parseInt(v,16))).replace(/&#(\d+);/g,(_,v)=>String.fromCodePoint(Number(v))).replace(/&nbsp;|&amp;|&minus;/gi,v=>({'&nbsp;':' ','&amp;':'&','&minus;':'-'}[v.toLowerCase()])).replace(/\s+/g,' ').trim();
-const number = s => /^\(?-?\d[\d,]*(?:\.\d+)?\)?$/.test(s.trim()) ? Number(s.replace(/[,()]/g,''))*(s.includes('(')?-1:1) : null;
+// Accepts "1,234", "(0.06)" and a currency sign in the same cell, as
+// Microsoft prints it: "$27,233", "$ (0.06)", "($0.06)".
+const number = s => { const t=s.replace(/\$/g,'').replace(/\s+/g,''); return /^\(?-?\d[\d,]*(?:\.\d+)?\)?$/.test(t) ? Number(t.replace(/[,()]/g,''))*(t.includes('(')?-1:1) : null; };
 const months = 'January February March April May June July August September October November December'.split(' ');
 function date(s) {
   const m=s.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s*(\d{1,2}),?\s*(20\d\d)/i);
