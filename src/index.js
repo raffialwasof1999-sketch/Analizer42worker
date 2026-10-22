@@ -51,6 +51,9 @@ const QUARTER_FIELDS = [
 
 const TAGS = {
   revenue: [
+    // Banks' total net revenue (JPM, BAC...). Non-banks never report it, and
+    // a bank's contract-revenue tags cover fee income only, so it goes first.
+    'RevenuesNetOfInterestExpense',
     'RevenueFromContractWithCustomerExcludingAssessedTax',
     'RevenueFromContractWithCustomerIncludingAssessedTax',
     'Revenues','SalesRevenueNet','SalesRevenueGoodsNet'
