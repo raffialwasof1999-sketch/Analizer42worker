@@ -49,3 +49,20 @@ test('skipped quarters say which check stopped them',()=>{
   assert.equal(out.estimatedCount,0);
   assert.match(out.skipped[0].reason,/reconciles to annual net income/);
 });
+
+test('a 16-week fiscal Q4 (Costco calendar) still gets its share count',()=>{
+  // FY 2024-09-02 to 2025-08-31: three 12-week quarters, then 16 weeks.
+  const st=['2024-09-02','2024-11-25','2025-02-17','2025-05-12'];
+  const en=['2024-11-24','2025-02-16','2025-05-11','2025-08-31'];
+  const d=[84,84,84,112], sh=[444.6e6,444.5e6,444.3e6,444.2e6], ni=[1.80e9,1.79e9,1.90e9,2.61e9];
+  const S=sh.reduce((s,v,i)=>s+v*d[i],0)/364, eps=ni.map((n,i)=>cents(n/sh[i]));
+  const q=en.map((e,i)=>({fiscalYear:2025,fiscalQuarter:i+1,fiscalPeriodEnd:e,netIncome:ni[i],
+    dilutedEPS:i<3?eps[i]:null,dilutedShares:i<3?sh[i]:null}));
+  const yrs=[{fiscalYear:2025,fiscalPeriodEnd:en[3],netIncome:ni.reduce((a,b)=>a+b),dilutedEPS:cents(ni.reduce((a,b)=>a+b)/S)}];
+  const fact=(i,val)=>({start:st[i],end:en[i],val,form:'10-Q',accn:'q'+i,filed:'2025-0'+(1+i*3)+'-15'});
+  const yr=val=>({start:st[0],end:en[3],val,form:'10-K',accn:'k',filed:'2025-10-08'});
+  const out=deriveQ4BasicEPS(q,yrs,[yr(S),...[0,1,2].map(i=>fact(i,sh[i]))],
+    [yr(yrs[0].dilutedEPS),...[0,1,2].map(i=>fact(i,eps[i]))],diluted);
+  assert.equal(out.estimatedCount,1,JSON.stringify(out.skipped));
+  assert.ok(Math.abs(q[3].dilutedShares/444.2e6-1)<0.001,String(q[3].dilutedShares));
+});

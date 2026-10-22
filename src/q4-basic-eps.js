@@ -73,7 +73,8 @@ export function deriveQ4BasicEPS(quarters,years,basicShareFacts,annualEPSFacts=[
         days(ends[1],ends[2]),days(ends[2],q4.fiscalPeriodEnd)
       ];
       const allDays=days(source.start,q4.fiscalPeriodEnd)+1;
-      if(qdays.some(d=>d<70||d>105)||allDays<340||allDays>375||
+      // 12/12/12/16-week fiscal calendars (Costco) put 112-119 days in Q4.
+      if(qdays.some(d=>d<70||d>120)||allDays<340||allDays>375||
         Math.abs(qdays.reduce((a,b)=>a+b,0)-allDays)>.01){why='quarter lengths '+qdays.join('/');continue;}
       // Recover period-specific SEC basic EPS AND denominator from the same
       // 10-Q accession. This avoids using a 2024-restated 2023 Q3 together
