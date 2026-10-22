@@ -8,7 +8,8 @@
  *
  *  1. the graph-proven diluted EPS factor for that quarter;
  *  2. the basic EPS factor proven for the same quarter, when raw diluted and
- *     raw basic EPS are on one share basis (diluted within 85-101% of basic);
+ *     raw basic EPS are on one share basis (diluted within 70-101% of basic;
+ *     any split is at least 3-for-2, so a mixed basis falls outside);
  *  3. no adjustment, when the quarter's raw diluted share count is within 25%
  *     of the newest quarter's (a split of 3-for-2 or more is far outside it).
  *
@@ -27,7 +28,7 @@ export function alignQuarterlyDilutedEPS(rows,rawRows,graphRows,basicFactors,spl
     if(finite(fromGraph)){copy.dilutedEPS=fromGraph;findings.adjustedFromGraph++;return copy;}
     const f=basicFactors?.[i];
     const ratio=finite(raw.basicEPS)&&raw.basicEPS!==0?raw.dilutedEPS/raw.basicEPS:NaN;
-    if(finite(f)&&f>0&&ratio>=.85&&ratio<=1.01){
+    if(finite(f)&&f>0&&ratio>=.7&&ratio<=1.01){
       copy.dilutedEPS=raw.dilutedEPS/f;findings.adjustedFromBasic++;return copy;
     }
     if(finite(newestShares)&&finite(raw.dilutedShares)&&raw.dilutedShares>0&&

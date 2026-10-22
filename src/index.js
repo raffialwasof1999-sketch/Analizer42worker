@@ -10,6 +10,8 @@ import { deriveQ4BasicEPS } from './q4-basic-eps.js';
 import { recoverSplitCrossingQ4BasicEPS } from './split-crossing-q4-basic-eps.js';
 import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './basic-eps-share-basis.js';
 import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
+import { withPredecessor } from './sec-predecessor.js';
+import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage } from './sec-earnings-dates.js';
 
 /**
@@ -50,6 +52,9 @@ const QUARTER_FIELDS = [
 
 const TAGS = {
   revenue: [
+    // Banks' total net revenue (JPM, BAC...). Non-banks never report it, and
+    // a bank's contract-revenue tags cover fee income only, so it goes first.
+    'RevenuesNetOfInterestExpense',
     'RevenueFromContractWithCustomerExcludingAssessedTax',
     'RevenueFromContractWithCustomerIncludingAssessedTax',
     'Revenues','SalesRevenueNet','SalesRevenueGoodsNet'
@@ -68,7 +73,9 @@ const TAGS = {
   dilutedEPS: ['EarningsPerShareDiluted'],
   basicEPS: ['EarningsPerShareBasic'],
   basicShares: ['WeightedAverageNumberOfSharesOutstandingBasic'],
-  dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding'],
+  // Issuers without dilutive securities may tag one combined count.
+  dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding',
+    'WeightedAverageNumberOfShareOutstandingBasicAndDiluted'],
   dividendsPaid: ['PaymentsOfDividends','PaymentsOfDividendsCommonStock'],
   dividendsPerShare: [
     'CommonStockDividendsPerShareDeclared',
@@ -263,6 +270,17 @@ function decorate(r,older) {
   return r;
 }
 
+// Fiscal year label for a fiscal year-end date. 52/53-week years that end on
+// the weekend nearest December 31 can end in the first days of January:
+// Johnson & Johnson's fiscal 2022 ended 2023-01-01. Labelling that 2023
+// would duplicate fiscal 2023, so a year ending by January 7 belongs to the
+// prior calendar year. Late-January and February year-ends (retailers) keep
+// the calendar year they end in.
+function fiscalYearOf(end) {
+  const year=Number(end.slice(0,4));
+  return end.slice(5,10)<='01-07' ? year-1 : year;
+}
+
 function periods(map) {
   const forms = ['10-K','10-K/A'];
 
@@ -291,7 +309,7 @@ function buildAnnual(map,ends,cik=null) {
       val(map[k],end,INSTANT.has(k)?'instant':'annual',forms);
 
     const r = {
-      fiscalYear:Number(end.slice(0,4)),
+      fiscalYear:fiscalYearOf(end),
       fiscalPeriodEnd:end
     };
 
@@ -353,7 +371,7 @@ function buildQuarterly(map,ends,cik=null) {
     if (current.length) {
       groups.push({
         ends:current,
-        year:Number(ends[0].slice(0,4))+1
+        year:fiscalYearOf(ends[0])+1
       });
     }
   }
@@ -366,7 +384,7 @@ function buildQuarterly(map,ends,cik=null) {
     if (qs.length===3) {
       groups.push({
         ends:[...qs,ends[i]],
-        year:Number(ends[i].slice(0,4))
+        year:fiscalYearOf(ends[i])
       });
     }
   }
@@ -489,6 +507,13 @@ function coverShares(rows,sec) {
     r.dilutedShares =
       precise?.val ??
       (n(r.dilutedShares)!==null ? r.dilutedShares : null);
+    // With no dilution (diluted EPS = basic EPS) the basic weighted count is
+    // the diluted count. ExxonMobil Holdings' first 10-Q tagged only basic.
+    if (r.dilutedShares===null && n(r.basicShares)!==null && r.basicShares>0 &&
+        n(r.dilutedEPS)!==null && n(r.basicEPS)!==null &&
+        Math.abs(r.dilutedEPS-r.basicEPS)<0.005) {
+      r.dilutedShares = r.basicShares;
+    }
 
     delete r._accession;
   }
@@ -645,7 +670,7 @@ export default {
 
       const cik = String(company.cik_str).padStart(10,'0');
 
-      const [facts,sub] = await Promise.all([
+      let [facts,sub] = await Promise.all([
         secFetch(`${SEC}/api/xbrl/companyfacts/CIK${cik}.json`),
         secFetch(`${SEC}/submissions/CIK${cik}.json`)
       ]);
@@ -712,6 +737,12 @@ export default {
           throw e;
         }
       }
+
+      // A successor registrant (holding-company reorganization) inherits its
+      // verified predecessor's history; see sec-predecessor.js.
+      const succession = await withPredecessor(facts,sub,cik,secFetch,SEC);
+      facts = succession.facts;
+      sub = succession.sub;
 
       const gaap = facts.facts?.['us-gaap'];
 
@@ -876,6 +907,11 @@ export default {
       assignQuarterDates(quarters,earningsHistory.filings);
       coverShares(quarters,facts);
       const q4BasicEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,map.basicShares,map.basicEPS);
+      // Most issuers never file a standalone fiscal Q4 diluted EPS. Estimate it
+      // the same guarded way from the 10-K and Q1-Q3 diluted EPS and shares;
+      // a readable earnings exhibit replaces the estimate further below.
+      const q4DilutedEPSEvidence=deriveQ4BasicEPS(quarters,annualFinancials,
+        map.dilutedShares,map.dilutedEPS,{eps:'dilutedEPS',shares:'dilutedShares'});
 
       const quarterlyFinancials =
         outputRows(quarters,QUARTER_FIELDS);
@@ -942,9 +978,10 @@ export default {
       ];
       const reportedEPS=await recoverSECReportedEPS(
         q4SplitRecovery.rows,earningsHistory.filings,cik,secFetch,limitedSecDocument,
-        estimatedBasicPeriods
+        estimatedBasicPeriods,q4DilutedEPSEvidence.findings.map(f=>f.fiscalPeriodEnd)
       );
-      const finalQuarterly=reportedEPS.rows;
+      const epsConsistency=enforceQuarterlyEPSConsistency(reportedEPS.rows,finalAnnual);
+      const finalQuarterly=epsConsistency.rows;
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
       // Script writes only the older 31/26 columns, so basic EPS needs an
       // independent column feed. 'NA' preserves row positions in sparse data.
@@ -971,6 +1008,8 @@ export default {
       };
       stockSplitAudit.quarterlyDilutedEPSAlignment=dilutedAlignment.findings;
       stockSplitAudit.quarterFourBasicEPS=q4BasicEPSEvidence;
+      stockSplitAudit.quarterFourDilutedEPS=q4DilutedEPSEvidence;
+      stockSplitAudit.quarterlyEPSConsistency=epsConsistency.findings;
       stockSplitAudit.splitCrossingQ4BasicEPS=q4SplitRecovery.findings;
       stockSplitAudit.reportedQuarterEPS=reportedEPS.audit;
       stockSplitAudit.companyFactsNormalization={
@@ -1005,6 +1044,8 @@ export default {
         // Additive source-input snapshots for future metrics without
         // changing the existing 32/25-column Google Sheets import.
         sourceFactsSummary:secSourceSummary(facts,TAGS),
+        // Set when history was merged from a verified predecessor registrant.
+        predecessorIssuer:succession.predecessor,
         sourceFactsAccess:{
           secRawFacts:'?ticker='+encodeURIComponent(ticker)+'&secRawFacts=1&offset=0&limit=100',
           secCatalog:'?ticker='+encodeURIComponent(ticker)+'&secCatalog=1',
@@ -1023,7 +1064,7 @@ export default {
             fiveYear:rollingRoicCoverage(quarters,20),
             tenYear:rollingRoicCoverage(quarters,40)
           },
-          earningsDates:earningsDateCoverage(quarters,earningsHistory.archivesScanned),
+          earningsDates:{...earningsDateCoverage(quarters,earningsHistory.archivesScanned),archivesSkipped:earningsHistory.archivesSkipped||[]},
           annualYears:annualFinancials.length,
           reportedQuarters:quarterlyFinancials.length,
           latestFourConsecutive:

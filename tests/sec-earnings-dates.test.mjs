@@ -69,12 +69,31 @@ test('keeps a missing 8-K date null rather than substituting the 10-Q date',()=>
     .missingItem202ForFiledQuarters,['2023-04-30']);
 });
 
-test('archive retrieval errors fail visibly instead of silently dropping dates',async()=>{
+test('archive retrieval errors are reported visibly without failing the response',async()=>{
   const sub={filings:{recent,files:[{name:olderFile,filingTo:'2023-12-31'}]}};
-  await assert.rejects(
-    fullQuarterFilingHistory(sub,rows(),cik,async()=>{throw Error('SEC 503');}),
-    /earnings-history archive unavailable.*SEC 503/
-  );
+  const loaded=await fullQuarterFilingHistory(sub,rows(),cik,async()=>{throw Error('SEC 503');});
+  assert.equal(loaded.archivesSkipped.length,1);
+  assert.equal(loaded.archivesSkipped[0].name,olderFile);
+  assert.match(loaded.archivesSkipped[0].reason,/SEC 503/);
+  const quarters=rows();
+  assignQuarterDates(quarters,loaded.filings);
+  assert.equal(quarters[0].earningsDisclosureDate,null);    // older quarter: visibly unknown
+  assert.equal(quarters[1].earningsDisclosureDate,'2026-08-20'); // recent dates intact
+});
+
+test('heavy filers read only the newest archives within the subrequest budget',async()=>{
+  const files=Array.from({length:40},(_,k)=>({
+    name:`CIK${cik}-submissions-${String(k+1).padStart(3,'0')}.json`,
+    filingTo:`20${String(10+Math.floor(k/4)).padStart(2,'0')}-12-31`}));
+  const sub={filings:{recent,files}};
+  const calls=[];
+  const loaded=await fullQuarterFilingHistory(sub,[{fiscalPeriodEnd:'2011-03-31'}],cik,
+    async url=>{calls.push(url);return archive;},14);
+  assert.equal(calls.length,14);
+  assert.equal(loaded.archivesSkipped.length,22);   // 4 archives end before 2011 and are irrelevant
+  assert.ok(calls.every(u=>!loaded.archivesSkipped.some(x=>u.endsWith(x.name))));
+  const readTo=files.filter(f=>calls.some(u=>u.endsWith('/'+f.name))).map(f=>f.filingTo);
+  assert.ok(loaded.archivesSkipped.every(x=>readTo.every(t=>x.filingTo<=t)));
 });
 
 test('de-duplicates archive/recent overlap by accession',async()=>{
