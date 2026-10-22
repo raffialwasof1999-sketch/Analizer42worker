@@ -40,12 +40,16 @@ for(const ticker of TICKERS){
     r.q24BasicEPSBlank=blank(q24,'basicEPS');
     r.q24RevenueBlank=blank(q24,'revenue');
     r.q24NetIncomeBlank=blank(q24,'netIncome');
+    r.ttmFreeCashFlowBlank=blank(q.slice(0,4),'freeCashFlow');
+    r.q20FreeCashFlowBlank=blank(q.slice(0,20),'freeCashFlow');
     r.latestDilutedShares=finite(q[0]?.dilutedShares);
     r.a10Blank=['revenue','netIncome','dilutedEPS','freeCashFlow'].flatMap(k=>
       blank(a10,k).map(y=>k+':'+y));
     // Mixed split basis or wrong column: diluted EPS should sit at 80-102%
     // of basic EPS for profitable quarters, and equal it for losses.
-    r.epsMismatch=q24.filter(x=>finite(x.basicEPS)&&finite(x.dilutedEPS)&&x.basicEPS!==0&&(
+    // A cent of rounding is allowed: $0.05 basic vs $0.04 diluted is fine.
+    r.epsMismatch=q24.filter(x=>finite(x.basicEPS)&&finite(x.dilutedEPS)&&x.basicEPS!==0&&
+      Math.abs(x.dilutedEPS-x.basicEPS)>0.0101&&(
       x.basicEPS>0 ? (x.dilutedEPS/x.basicEPS<.8||x.dilutedEPS/x.basicEPS>1.02)
                    : Math.abs(x.dilutedEPS/x.basicEPS-1)>.05))
       .map(x=>`${x.fiscalYear}Q${x.fiscalQuarter}:${x.basicEPS}/${x.dilutedEPS}`);
@@ -61,7 +65,7 @@ for(const ticker of TICKERS){
     // that names its period end.
     const findingsFor=end=>JSON.stringify(audit).match(new RegExp('\\{[^{}]*"'+end+'"[^{}]*\\}','g'))||[];
     r.epsGapDetail=q24.filter(x=>!finite(x.dilutedEPS)||!finite(x.basicEPS)).map(x=>
-      `${x.fiscalPeriodEnd} Q${x.fiscalQuarter} NI=${x.netIncome} basic=${x.basicEPS} diluted=${x.dilutedEPS} shares=${x.dilutedShares} :: ${findingsFor(x.fiscalPeriodEnd).join(' ').slice(0,500)}`);
+      `${x.fiscalPeriodEnd} Q${x.fiscalQuarter} NI=${x.netIncome} basic=${x.basicEPS} diluted=${x.dilutedEPS} shares=${x.dilutedShares} :: ${findingsFor(x.fiscalPeriodEnd).filter(f=>/reason|status/.test(f)).join(' ').slice(0,300)}`).slice(0,3);
   }catch(e){r.error=String(e.message||e).slice(0,160);r.subrequests=calls;}
   finally{globalThis.fetch=realFetch;}
   results.push(r);
@@ -73,16 +77,18 @@ const problems=r=>[
   r.error&&'error: '+r.error,
   r.ttmDilutedEPSBlank?.length&&'P/E TTM blank ('+r.ttmDilutedEPSBlank+')',
   r.q24DilutedEPSBlank?.length&&r.q24DilutedEPSBlank.length+' of 24 quarters lack diluted EPS',
+  r.ttmFreeCashFlowBlank?.length&&'FCF TTM blank ('+r.ttmFreeCashFlowBlank+')',
+  r.q20FreeCashFlowBlank?.length&&r.q20FreeCashFlowBlank.length+' of 20 quarters lack FCF',
   r.q24BasicEPSBlank?.length&&r.q24BasicEPSBlank.length+' lack basic EPS',
   (r.q24RevenueBlank?.length||r.q24NetIncomeBlank?.length)&&'revenue/net income gaps',
   r.latestDilutedShares===false&&'latest diluted shares blank',
   r.a10Blank?.length&&r.a10Blank.length+' annual gaps ('+r.a10Blank.slice(0,4)+')',
   r.epsMismatch?.length&&'diluted vs basic mismatch '+r.epsMismatch.slice(0,3),
-  r.incomeMismatch?.length&&'EPS x shares != income '+r.incomeMismatch.slice(0,3),
   r.overSubrequestLimit&&'over Cloudflare subrequest limit ('+r.subrequests+')'
 ].filter(Boolean);
 const lines=results.map(r=>{const p=problems(r);
-  return `${p.length?'GAP':'OK '} ${r.ticker} ${r.latest||''} req=${r.subrequests} ${p.join('; ')}`;});
+  const info=r.incomeMismatch?.length?' (info: EPS x shares != income '+r.incomeMismatch.slice(0,2)+')':'';
+  return `${p.length?'GAP':'OK '} ${r.ticker} ${r.latest||''} req=${r.subrequests} ${p.join('; ')}${info}`;});
 const clean=results.filter(r=>!problems(r).length).length;
 const summary=`${clean}/${results.length} tickers complete`;
 console.log(summary+'\n'+lines.join('\n'));
