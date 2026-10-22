@@ -63,8 +63,15 @@ const TAGS = {
     'NetIncomeLoss','ProfitLoss','NetIncomeLossAttributableToParent'
   ],
   operatingIncome: ['OperatingIncomeLoss'],
-  operatingCashFlow: ['NetCashProvidedByUsedInOperatingActivities'],
-  capitalExpenditures: ['PaymentsToAcquirePropertyPlantAndEquipment'],
+  operatingCashFlow: ['NetCashProvidedByUsedInOperatingActivities',
+    'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations'],
+  // Capital expenditures: the PP&E line first (unchanged for issuers that
+  // file it), then the broader productive-assets lines many issuers use for
+  // their "Capital expenditures" row: Nvidia, Amazon, Home Depot, PepsiCo,
+  // Chevron, AT&T, GE, Ford ("ProductiveAssets"); Verizon ("Other").
+  // CapitalExpendituresIncurredButNotYetPaid is a noncash note, never used.
+  capitalExpenditures: ['PaymentsToAcquirePropertyPlantAndEquipment',
+    'PaymentsToAcquireProductiveAssets','PaymentsToAcquireOtherProductiveAssets'],
   incomeTaxExpense: ['IncomeTaxExpenseBenefit'],
   incomeBeforeTax: [
     'IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
