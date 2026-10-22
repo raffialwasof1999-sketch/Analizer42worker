@@ -11,10 +11,10 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
   const isNumeric=x=>typeof x==='number'&&Number.isFinite(x);
   const hasSplit=(graph.changedBasisEdges||[]).length>0;
   const findings=new Map(estimatedQ4.map(x=>[x.fiscalPeriodEnd,x]));
-  const out=[],adjusted=[],unverified=[];
+  const out=[],adjusted=[],unverified=[],factors=[];
   for(const row of rows){
     const copy={...row};
-    if(!hasSplit||!isNumeric(row.basicEPS)){out.push(copy);continue;}
+    if(!hasSplit||!isNumeric(row.basicEPS)){out.push(copy);factors.push(null);continue;}
     let accn=null;
     let f;
     const derived=findings.get(row.fiscalPeriodEnd);
@@ -65,13 +65,16 @@ export function normalizeHistoricalBasicEPS(rows,graph,resolveQuarterly,estimate
     if((graph.conflicts||[]).length||!isNumeric(f)||f<=0){
       copy.basicEPS=null;
       unverified.push({periodEnd:row.fiscalPeriodEnd,accession:accn});
+      factors.push(null);
     }else{
       copy.basicEPS=row.basicEPS/f;
       adjusted.push({periodEnd:row.fiscalPeriodEnd,accession:accn,factor:f});
+      factors.push(f);
     }
     out.push(copy);
   }
-  return {rows:out,adjustedCount:adjusted.length,
+  // factors[i] is the proven share-basis divisor applied to rows[i], or null.
+  return {rows:out,factors,adjustedCount:adjusted.length,
     unavailableCount:unverified.length,unverified,
     method:'SEC share-basis verified quarterly basic EPS; derived Q4 uses annual share proof'};
 }
