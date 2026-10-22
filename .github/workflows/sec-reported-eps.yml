@@ -1,0 +1,66 @@
+name: Verify SEC reported quarterly EPS
+on:
+  push:
+    branches: [main, fix/sec-reported-quarterly-eps]
+    paths:
+      - src/**
+      - tests/**
+      - .github/workflows/sec-reported-eps.yml
+permissions:
+  contents: read
+jobs:
+  eps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - name: Verify SEC-only recovery with live issuer filings
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import worker from './src/index.js';
+          const response=await worker.fetch(new Request('https://test.invalid/?ticker=NFLX'));
+          const data=await response.json();
+          assert.equal(data.success,true,JSON.stringify(data));
+          const row=data.quarterlyFinancials.find(r=>r.fiscalPeriodEnd==='2025-12-31');
+          assert.equal(row?.basicEPS,.57);
+          assert.equal(row?.dilutedEPS,.56);
+          const proof=data.stockSplitAudit.reportedQuarterEPS.findings.find(r=>r.periodEnd==='2025-12-31'&&r.status==='recovered');
+          assert.ok(proof);
+          assert.match(proof.source,/^https:\/\/www.sec.gov\/Archives\/edgar\/data\/1065280\//);
+          console.log(JSON.stringify({quarter:row.fiscalPeriodEnd,basicEPS:row.basicEPS,dilutedEPS:row.dilutedEPS,proof}));
+          NODE
+      - name: Verify deployed production response and spreadsheet CSV
+        if: github.ref == 'refs/heads/main'
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {setTimeout} from 'node:timers/promises';
+          const base='https://analyzer42-sec.raffialwasof-1999.workers.dev/';
+          let last;
+          for(let attempt=0;attempt<12;attempt++){
+            try{
+              const response=await fetch(base+'?ticker=NFLX&epsRelease='+process.env.GITHUB_SHA,{signal:AbortSignal.timeout(90000)});
+              assert.ok(response.ok,'Worker HTTP '+response.status);
+              const data=await response.json();
+              assert.equal(data.success,true);
+              const index=data.quarterlyFinancials.findIndex(r=>r.fiscalPeriodEnd==='2025-12-31');
+              const row=data.quarterlyFinancials[index];
+              assert.equal(row?.basicEPS,.57);assert.equal(row?.dilutedEPS,.56);
+              const proof=data.stockSplitAudit?.reportedQuarterEPS?.findings.find(x=>x.periodEnd==='2025-12-31'&&x.status==='recovered');
+              assert.ok(proof,'New fallback not deployed');
+              const csvResponse=await fetch(base+'?ticker=NFLX&basicEpsCsv=quarterly&epsRelease='+process.env.GITHUB_SHA,{signal:AbortSignal.timeout(90000)});
+              assert.ok(csvResponse.ok);
+              const csv=(await csvResponse.text()).trim().split(/\r?\n/);
+              assert.equal(Number(csv[index]),.57);
+              console.log('PRODUCTION EPS VERIFIED',JSON.stringify({period:row.fiscalPeriodEnd,basicEPS:row.basicEPS,dilutedEPS:row.dilutedEPS,source:proof.source,csvRows:csv.length}));
+              process.exit(0);
+            }catch(error){last=error;console.log('Waiting for verified deployment, attempt '+(attempt+1)+': '+error.message);}
+            await setTimeout(15000);
+          }
+          throw last;
+          NODE
