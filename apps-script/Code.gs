@@ -66,25 +66,17 @@ const AA_QUARTER_FIELDS = [
   'sourceTicker'
 ];
 
+// Only labels next to cells the refresh reads or writes are checked:
+// B2 (ticker), B4 (company), B6 (checkbox), B7 and A7's note (status),
+// E2 (exchange), C5's note, and the notes on F2:F7. Everything else on the
+// dashboard (history table, assumptions, results, metrics table) is never
+// written by the refresh and is free to change in the sheet.
 const AA_LABELS = {
   A2:'Stock Ticker',
-  A3:'Years of Analysis',
   A4:'Company Name',
   A6:'↻ Refresh SEC Data',
   A7:'SEC Data Status',
-  A12:'HISTORICAL PERFORMANCE',
-  A13:'Metric',
-  A14:'ROIC',
-  A15:'Rev. Growth %',
-  A16:'Profit Margin',
-  A17:'Free Cash Flow Margin',
-  A18:'Assumed P/E Ratio at End of Projection Period',
-  A19:'Assumed Price/FCF Ratio at End of Projection Period',
-  A20:'Desired Compounded Return per Year (CAGR)',
-  A23:'RESULTS',
   C2:'Exchange',
-  C3:'Current Stock Price',
-  C4:'Market Cap',
   C5:'Enterprise Value',
   F2:'Latest Revenue (TTM)',
   F3:'Latest Net Income (TTM)',
@@ -202,26 +194,9 @@ function aaCheckDashboard_(d,a,q) {
     );
   }
 
-  const headings = d
-    .getRange('E24:G24')
-    .getDisplayValues()[0];
-
-  if (headings.join('|') !== 'Low|Mid|High') {
-    throw Error(
-      'Results scenario headings are not in E24:G24.'
-    );
-  }
-
-  const historical = d
-    .getRange('B13:D13')
-    .getDisplayValues()[0];
-
-  if (historical.join('|') !== '1 Year|5 Years|10 Years') {
-    throw Error(
-      'Historical headings B13:D13 changed.'
-    );
-  }
-
+  // Safety net (owner's choice): the result labels and formulas are not
+  // written by the refresh, but a broken result formula stops the import
+  // with a clear message instead of showing a wrong value.
   const label = d
     .getRange('A25:A28')
     .getDisplayValues()

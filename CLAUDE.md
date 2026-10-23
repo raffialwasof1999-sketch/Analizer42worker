@@ -30,21 +30,24 @@ change the script instead (and the sheet, for an immediate effect).
 
 ## What makes every refresh fail
 
-`aaCheckDashboard_` stops the import if any of these change:
+`aaCheckDashboard_` stops the import if any of these change. It checks only
+labels next to cells the refresh reads or writes:
 
-- Labels in `AA_LABELS` (A2:A23, C2:C5, F2:F7), E24:G24
-  `Low|Mid|High`, B13:D13 `1 Year|5 Years|10 Years`.
-- B6 must stay a checkbox. (The metrics table H2:J23 is not checked: its
-  headings H2/I2/J2 and metric names can be renamed in the sheet freely; to
-  reorder, cut and paste each H cell together with its I and J cells, never
-  copy, and never insert whole rows.)
-- A25:A28 label wording; E25:G28 formulas must keep referencing their
+- Labels in `AA_LABELS`: A2 `Stock Ticker`, A4 `Company Name`, A6
+  `↻ Refresh SEC Data`, A7 `SEC Data Status`, C2 `Exchange`, C5
+  `Enterprise Value`, and F2:F7 (the six "Latest ..." labels).
+- B6 must stay a checkbox.
+- Safety net for the results (not written by the refresh, kept by choice):
+  A25:A28 label wording, and E25:G28 formulas must keep referencing their
   inputs (E15/E16/E18/E20, $G$2, $G$6, $B$3, $E$3, $I$16...).
 - Data-tab header rows must match the field lists; Quarterly Data Z1 is
   `lastImportedAt` or empty.
 
 Renaming or moving any of these needs the matching script change in the
-same PR.
+same PR. Nothing else is checked: the history table and assumptions
+(A3, A12:G20, B13:D13, E24:G24) and the metrics table (H2:J23) can be
+renamed or edited in the sheet. To reorder metrics, cut and paste each H
+cell together with its I and J cells (never copy, never insert whole rows).
 
 ## Safe to change in the sheet
 
@@ -99,7 +102,7 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 1. Which part(s) does it touch? Is any target cell in the overwrite or
    refuse-to-refresh lists above?
 2. Script-written cells → change `apps-script/`; layout-checked cells →
-   update `AA_LABELS` / `AA_METRICS` / formula checks in the same PR.
+   update `AA_LABELS` (or the header checks) in the same PR.
 3. Worker change → `npm test` (includes the compatibility test) and the
    live coverage audit on the PR.
 4. After merging or editing: refresh the sheet **and** change the ticker
