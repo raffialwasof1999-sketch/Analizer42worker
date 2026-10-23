@@ -4,7 +4,7 @@ import { routeRequest, resetFeedReuse } from '../src/index.js';
 
 // A fake full calculation that counts how often it runs.
 function counter(body = { success: true, annualFinancials: [{ basicEPS: 7.49 }, { basicEPS: null }],
-  quarterlyFinancials: [{ basicEPS: 1.59 }, { basicEPS: 2.42 }],
+  quarterlyFinancials: [{ basicEPS: 1.59, fcfPerShare: 2.1 }, { basicEPS: 2.42, fcfPerShare: null }],
   blankReasons: [{ metric: 'PEG Ratio (Forward 3 Years)', reason: 'Needs forecasts.' }] }, status = 200) {
   const calls = [];
   const handler = async request => {
@@ -65,4 +65,14 @@ test('raw views, audits and bad input bypass reuse', async () => {
   assert.deepEqual(calls, ['?ticker=AAPL&secCatalog=1', '?ticker=AAPL&basisAudit=1', '?ticker=', '?ticker=AAPL&debtAudit=x']);
   const r = await get('ticker=AAPL&basicEpsCsv=weekly', handler);
   assert.equal(r.status, 400);
+});
+
+test('the FCF-per-share feed reuses the import and validates its parameter', async () => {
+  resetFeedReuse();
+  const { calls, handler } = counter();
+  await (await get('ticker=NVDA', handler)).text();
+  const r = await get('ticker=NVDA&fcfPerShareCsv=quarterly&revision=1', handler);
+  assert.equal(await r.text(), '2.1\nNA\n');
+  assert.equal(calls.length, 1);
+  assert.equal((await get('ticker=NVDA&fcfPerShareCsv=annual', handler)).status, 400);
 });

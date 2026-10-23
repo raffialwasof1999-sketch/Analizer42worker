@@ -12,6 +12,7 @@ import { normalizeHistoricalBasicEPS, findMatchingAnnualBasicEPSBasis } from './
 import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
 import { withPredecessor } from './sec-predecessor.js';
 import { blankReasons, blankReasonsCsv } from './blank-reasons.js';
+import { fcfPerShare } from './fcf-per-share.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage, fillFilingDatesFromFacts } from './sec-earnings-dates.js';
 
@@ -48,7 +49,9 @@ const QUARTER_FIELDS = [
   'dividendsPaid','dividendsPerShare','operatingIncome','incomeTaxExpense',
   'incomeBeforeTax','investedCapital','stockholdersEquity','totalDebt',
   'cash','roic','dilutedShares','sharesOutstanding',
-  'sharesOutstandingAsOf','secFilingDate','earningsDisclosureDate','basicEPS'
+  'sharesOutstandingAsOf','secFilingDate','earningsDisclosureDate','basicEPS',
+  // Not imported by the Apps Script; served as ?fcfPerShareCsv=quarterly.
+  'fcfPerShare'
 ];
 
 const TAGS = {
@@ -701,8 +704,11 @@ async function historicalSplitFilings(sub,cik,structuredEvidence) {
    concurrent feed requests share one calculation. Feed output is unchanged.
    ========================================================= */
 const FEED_REUSE_MS = 5*60*1000;
-const FEED_PARAMS = new Set(['ticker','basicEpsCsv','blankReasons','revision','release','retry']);
+const FEED_PARAMS = new Set(['ticker','basicEpsCsv','fcfPerShareCsv','blankReasons','revision','release','retry']);
 const recent = new Map(); // ticker -> {at, promise of {status, body}}
+
+// One value per quarterly row, newest first; 'NA' keeps row positions.
+const fcfCsv = rows => rows.map(r=>n(r.fcfPerShare)!==null?String(r.fcfPerShare):'NA').join('\n')+'\n';
 
 function csvResponse(text) {
   return new Response(text,{headers:{
@@ -738,9 +744,12 @@ export async function routeRequest(request,handler=handleRequest) {
   if (!/^[A-Z0-9.-]{1,12}$/.test(ticker) || params.some(k=>!FEED_PARAMS.has(k)))
     return handler(request);
   const feed=url.searchParams.get('blankReasons')==='1' ? 'reasons'
-    : url.searchParams.has('basicEpsCsv') ? 'basic' : null;
+    : url.searchParams.has('basicEpsCsv') ? 'basic'
+    : url.searchParams.has('fcfPerShareCsv') ? 'fcf' : null;
   if (feed==='basic' && !['annual','quarterly'].includes(url.searchParams.get('basicEpsCsv')))
     return json({success:false,error:'Choose basicEpsCsv=annual or quarterly'},400);
+  if (feed==='fcf' && url.searchParams.get('fcfPerShareCsv')!=='quarterly')
+    return json({success:false,error:'Use fcfPerShareCsv=quarterly'},400);
 
   let result;
   if (!feed) {
@@ -757,6 +766,7 @@ export async function routeRequest(request,handler=handleRequest) {
   }});
   const data=JSON.parse(result.body);
   if (feed==='reasons') return csvResponse(blankReasonsCsv(data.blankReasons||[],ticker));
+  if (feed==='fcf') return csvResponse(fcfCsv(data.quarterlyFinancials));
   const records=url.searchParams.get('basicEpsCsv')==='annual'?data.annualFinancials:data.quarterlyFinancials;
   return csvResponse(records.map(r=>n(r.basicEPS)!==null?String(r.basicEPS):'NA').join('\n')+'\n');
 }
@@ -1116,6 +1126,9 @@ async function handleRequest(request) {
       );
       const epsConsistency=enforceQuarterlyEPSConsistency(reportedEPS.rows,finalAnnual);
       const finalQuarterly=epsConsistency.rows;
+      // Split-adjusted FCF per diluted share for the sheet's 5-year P/FCF.
+      const fcfShares=fcfPerShare(finalQuarterly,quarters);
+      finalQuarterly.forEach((row,i)=>{ row.fcfPerShare=fcfShares.values[i]; });
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
       // Script writes only the older 31/26 columns, so basic EPS needs an
       // independent column feed. 'NA' preserves row positions in sparse data.
@@ -1139,6 +1152,11 @@ async function handleRequest(request) {
             'cache-control':'public, max-age=900'
           }
         });
+      }
+      const fcfShareCsv = url.searchParams.get('fcfPerShareCsv');
+      if (fcfShareCsv !== null) {
+        if (fcfShareCsv!=='quarterly') return json({success:false,error:'Use fcfPerShareCsv=quarterly'},400);
+        return csvResponse(fcfCsv(finalQuarterly));
       }
       const basicCsv = url.searchParams.get('basicEpsCsv');
       if (basicCsv !== null) {

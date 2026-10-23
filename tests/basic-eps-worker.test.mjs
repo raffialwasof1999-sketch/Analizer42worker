@@ -62,7 +62,8 @@ test('Worker exports reported basic EPS in appended schema without changing dilu
    assert.equal(data.quarterlyFinancials[1].dilutedEPS,1.57);
    assert.equal(data.quarterlyFinancials[0].basicEPS,null);
    assert.equal(Object.keys(data.annualFinancials[0]).at(-1),'basicEPS');
-   assert.equal(Object.keys(data.quarterlyFinancials[0]).at(-1),'basicEPS');
+   // New quarterly fields are only ever appended (basicEPS, then fcfPerShare).
+   assert.deepEqual(Object.keys(data.quarterlyFinancials[0]).slice(-2),['basicEPS','fcfPerShare']);
  }finally{globalThis.fetch=original;}
 });
 test('basic EPS split scaling preserves diluted EPS and cash flows',()=>{
