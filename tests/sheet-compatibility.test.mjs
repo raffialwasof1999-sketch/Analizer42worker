@@ -98,12 +98,33 @@ test('feeds served from the shared calculation match the direct calculation byte
     throw Error('Unexpected SEC fetch ' + url);
   };
   try {
-    for (const feed of ['basicEpsCsv=quarterly', 'basicEpsCsv=annual', 'fcfPerShareCsv=quarterly', 'netAcquisitionsCsv=quarterly', 'blankReasons=1']) {
+    for (const feed of ['basicEpsCsv=quarterly', 'basicEpsCsv=annual', 'fcfPerShareCsv=quarterly', 'netAcquisitionsCsv=quarterly', 'quarterlyExtrasCsv=1', 'blankReasons=1']) {
       resetFeedReuse();
       // An unknown extra parameter bypasses reuse and runs the original path.
       const direct = await (await routeRequest(new Request('https://w.test/?ticker=TEST&' + feed + '&bypass=1'))).text();
       const shared = await (await routeRequest(new Request('https://w.test/?ticker=TEST&' + feed + '&revision=1'))).text();
       assert.equal(shared, direct, feed);
     }
+  } finally { globalThis.fetch = original; resetFeedReuse(); }
+});
+
+test('the combined quarterly feed equals the three separate feeds, column by column', async () => {
+  const { routeRequest, resetFeedReuse } = await import('../src/index.js');
+  const original = globalThis.fetch;
+  globalThis.fetch = async url => {
+    url = String(url);
+    if (url.includes('company_tickers.json')) return Response.json(company);
+    if (url.includes('/companyfacts/')) return Response.json(facts);
+    if (url.includes('/submissions/')) return Response.json(details);
+    throw Error('Unexpected SEC fetch ' + url);
+  };
+  try {
+    resetFeedReuse();
+    const text = async q => (await routeRequest(new Request('https://w.test/?ticker=TEST&' + q + '&revision=1'))).text();
+    const rows = (await text('quarterlyExtrasCsv=1')).trim().split('\n').map(l => l.split(','));
+    const separate = await Promise.all(['basicEpsCsv=quarterly', 'fcfPerShareCsv=quarterly', 'netAcquisitionsCsv=quarterly']
+      .map(async q => (await text(q)).trim().split('\n')));
+    assert.ok(rows.length > 0);
+    separate.forEach((col, c) => assert.deepEqual(rows.map(r => r[c]), col));
   } finally { globalThis.fetch = original; resetFeedReuse(); }
 });
