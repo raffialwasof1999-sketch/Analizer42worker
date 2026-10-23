@@ -734,49 +734,6 @@ function aaRemoveTickerTriggers_(notify) {
 }
 
 /* =========================================================
-   REFRESH WEB APP (FOR TOOLS THAT CANNOT TYPE IN THE SHEET)
-   =========================================================
- * Edits through the Sheets API do not fire onEdit, so tools (the Sheets
- * connector) start a refresh by calling this web app instead:
- *   <web app URL>?ticker=MSFT   sets B2 to MSFT, then refreshes
- *   <web app URL>/MSFT          the same, for tools that drop query strings
- *   <web app URL>               refreshes the current B2
- * It replies with JSON: {ok, ticker, company, importedAt} or {ok:false, error}.
- * The URL is not published anywhere public. It is kept in the sheet's
- * private developer metadata (key aaRefreshUrl), copied once from the
- * deployment "Active Analyzer refresh (GitHub)" (its address never changes
- * between deploys). The ScriptApp service URL lookup is not used: it returns
- * a different address that does not serve this deployment.
- */
-
-function doGet(e) {
-  const params = (e && e.parameter) || {};
-  let result;
-  try {
-    const {d,q} = aaSheets_();
-    const requested = params.ticker ||
-      String((e && e.pathInfo) || '').split('/')[0];
-    if (requested) {
-      d.getRange(AA.tickerCell).setValue(aaTicker_(requested));
-      SpreadsheetApp.flush();
-    }
-    refreshStockAnalyzer();
-    SpreadsheetApp.flush();
-    result = {
-      ok:true,
-      ticker:q.getRange('Y2').getDisplayValue(),
-      company:d.getRange(AA.companyCell).getDisplayValue(),
-      importedAt:q.getRange('Z2').getDisplayValue()
-    };
-  } catch (err) {
-    result = {ok:false,error:String(err.message||err)};
-  }
-  return ContentService
-    .createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-/* =========================================================
    TICKER CHANGE / B6 CHECKBOX REFRESH HANDLER
    ========================================================= */
 

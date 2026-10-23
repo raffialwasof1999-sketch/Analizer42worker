@@ -16,18 +16,7 @@ owner to merge, give the full PR link.
 
 ## What every refresh (and ticker change) overwrites
 
-Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`. A typed edit
-to B2/B6 fires it (`aaTickerEdited`); an edit through the Sheets API (the
-connector) does not. To refresh from a session without the browser, call
-the refresh web app (`doGet`): `<url>/MSFT` (or `?ticker=MSFT`; WebFetch
-drops query strings, so use the path form) sets B2 and refreshes,
-replying with JSON. Its URL is in the sheet's developer metadata (key
-`aaRefreshUrl`), copied from the deployment "Active Analyzer refresh
-(GitHub)" (stable across deploys); never commit or log it (this repository
-is public). The call's reply is a redirect that WebFetch reports as an
-error even though the refresh ran: confirm through Quarterly Data Y2/Z2.
-GOOGLEFINANCE price history can't be read by any API, so I5/I15 and the
-Historical P/E Data tab still need a screenshot to check.
+Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`.
 
 - **Financial Data** columns A:AE, rows 2+ (`AA_ANNUAL_FIELDS`), and
   **Quarterly Data** columns A:Y, rows 2+ (`AA_QUARTER_FIELDS`), plus Z1/Z2
