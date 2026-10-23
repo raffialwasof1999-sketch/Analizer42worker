@@ -66,25 +66,17 @@ const AA_QUARTER_FIELDS = [
   'sourceTicker'
 ];
 
+// Only labels next to cells the refresh reads or writes are checked:
+// B2 (ticker), B4 (company), B6 (checkbox), B7 and A7's note (status),
+// E2 (exchange), C5's note, and the notes on F2:F7. Everything else on the
+// dashboard (history table, assumptions, results, metrics table) is never
+// written by the refresh and is free to change in the sheet.
 const AA_LABELS = {
   A2:'Stock Ticker',
-  A3:'Years of Analysis',
   A4:'Company Name',
   A6:'↻ Refresh SEC Data',
   A7:'SEC Data Status',
-  A12:'HISTORICAL PERFORMANCE',
-  A13:'Metric',
-  A14:'ROIC',
-  A15:'Rev. Growth %',
-  A16:'Profit Margin',
-  A17:'Free Cash Flow Margin',
-  A18:'Assumed P/E Ratio at End of Projection Period',
-  A19:'Assumed Price/FCF Ratio at End of Projection Period',
-  A20:'Desired Compounded Return per Year (CAGR)',
-  A23:'RESULTS',
   C2:'Exchange',
-  C3:'Current Stock Price',
-  C4:'Market Cap',
   C5:'Enterprise Value',
   F2:'Latest Revenue (TTM)',
   F3:'Latest Net Income (TTM)',
@@ -200,88 +192,6 @@ function aaCheckDashboard_(d,a,q) {
     throw Error(
       'Refresh checkbox missing at Analyzer!B6.'
     );
-  }
-
-  const headings = d
-    .getRange('E24:G24')
-    .getDisplayValues()[0];
-
-  if (headings.join('|') !== 'Low|Mid|High') {
-    throw Error(
-      'Results scenario headings are not in E24:G24.'
-    );
-  }
-
-  const historical = d
-    .getRange('B13:D13')
-    .getDisplayValues()[0];
-
-  if (historical.join('|') !== '1 Year|5 Years|10 Years') {
-    throw Error(
-      'Historical headings B13:D13 changed.'
-    );
-  }
-
-  const label = d
-    .getRange('A25:A28')
-    .getDisplayValues()
-    .map(r => r[0]);
-
-  if (
-    !label[0].includes('Net Profit Margin') ||
-    !label[1].includes('Free Cash Flow Margin') ||
-    !label[2].startsWith('Current Stock Price') ||
-    !label[3].startsWith('Current Stock Price')
-  ) {
-    throw Error(
-      'Result labels moved from A25:A28.'
-    );
-  }
-
-  for (const col of ['E','F','G']) {
-    const refs = [
-      {
-        cell:col+'25',
-        items:[
-          col+'15',col+'16',col+'18',col+'20',
-          '$G$2','$G$6','$B$3'
-        ]
-      },
-      {
-        cell:col+'26',
-        items:[
-          col+'15',col+'17',col+'19',col+'20',
-          '$G$2','$G$6','$B$3'
-        ]
-      },
-      {
-        cell:col+'27',
-        items:[
-          'AVERAGE('+col+'25:'+col+'26)',
-          col+'20','$E$3'
-        ]
-      },
-      {
-        cell:col+'28',
-        items:[col+'27','$I$16']
-      }
-    ];
-
-    for (const ref of refs) {
-      const formula = d
-        .getRange(ref.cell)
-        .getFormula();
-
-      if (
-        !formula ||
-        ref.items.some(s => !formula.includes(s))
-      ) {
-        throw Error(
-          'Unexpected result formula in Analyzer!'+
-          ref.cell+'; no data was imported.'
-        );
-      }
-    }
   }
 
   aaCheckHeader_(a,AA_ANNUAL_FIELDS);
