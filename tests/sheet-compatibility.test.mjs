@@ -144,8 +144,10 @@ test('the layout check covers only cells the refresh reads or writes', () => {
   const labels = scriptSource.slice(scriptSource.indexOf('const AA_LABELS = {'), scriptSource.indexOf('};', scriptSource.indexOf('const AA_LABELS = {')));
   const cells = [...labels.matchAll(/^\s+([A-Z]+\d+):/gm)].map(m => m[1]);
   assert.deepEqual(cells, ['A2','A4','A6','A7','C2','C5','F2','F3','F4','F5','F6','F7']);
-  for (const gone of ["getRange('E24:G24')", "getRange('B13:D13')", "getRange('A25:A28')", 'Unexpected result formula'])
+  for (const gone of ["getRange('E24:G24')", "getRange('B13:D13')"])
     assert.ok(!scriptSource.includes(gone), gone);
+  assert.ok(scriptSource.includes("getRange('A25:A28')"));              // result safety net kept
+  assert.ok(scriptSource.includes('Unexpected result formula'));
   assert.ok(scriptSource.includes('aaCheckHeader_(a,AA_ANNUAL_FIELDS)'));  // data-tab headers still checked
   assert.ok(scriptSource.includes('Refresh checkbox missing'));           // B6 still checked
 });

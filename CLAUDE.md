@@ -37,16 +37,17 @@ labels next to cells the refresh reads or writes:
   `↻ Refresh SEC Data`, A7 `SEC Data Status`, C2 `Exchange`, C5
   `Enterprise Value`, and F2:F7 (the six "Latest ..." labels).
 - B6 must stay a checkbox.
+- Safety net for the results (not written by the refresh, kept by choice):
+  A25:A28 label wording, and E25:G28 formulas must keep referencing their
+  inputs (E15/E16/E18/E20, $G$2, $G$6, $B$3, $E$3, $I$16...).
 - Data-tab header rows must match the field lists; Quarterly Data Z1 is
   `lastImportedAt` or empty.
 
 Renaming or moving any of these needs the matching script change in the
-same PR. Nothing else is checked: the history table, assumptions, results
-(A12:G28) and the metrics table (H2:J23) can be renamed or edited in the
-sheet. To reorder metrics, cut and paste each H cell together with its I
-and J cells (never copy, never insert whole rows). The result formulas
-E25:G28 are no longer checked, so a broken one shows a wrong value or an
-error instead of stopping the refresh.
+same PR. Nothing else is checked: the history table and assumptions
+(A3, A12:G20, B13:D13, E24:G24) and the metrics table (H2:J23) can be
+renamed or edited in the sheet. To reorder metrics, cut and paste each H
+cell together with its I and J cells (never copy, never insert whole rows).
 
 ## Safe to change in the sheet
 

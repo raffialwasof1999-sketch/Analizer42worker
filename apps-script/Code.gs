@@ -194,6 +194,71 @@ function aaCheckDashboard_(d,a,q) {
     );
   }
 
+  // Safety net (owner's choice): the result labels and formulas are not
+  // written by the refresh, but a broken result formula stops the import
+  // with a clear message instead of showing a wrong value.
+  const label = d
+    .getRange('A25:A28')
+    .getDisplayValues()
+    .map(r => r[0]);
+
+  if (
+    !label[0].includes('Net Profit Margin') ||
+    !label[1].includes('Free Cash Flow Margin') ||
+    !label[2].startsWith('Current Stock Price') ||
+    !label[3].startsWith('Current Stock Price')
+  ) {
+    throw Error(
+      'Result labels moved from A25:A28.'
+    );
+  }
+
+  for (const col of ['E','F','G']) {
+    const refs = [
+      {
+        cell:col+'25',
+        items:[
+          col+'15',col+'16',col+'18',col+'20',
+          '$G$2','$G$6','$B$3'
+        ]
+      },
+      {
+        cell:col+'26',
+        items:[
+          col+'15',col+'17',col+'19',col+'20',
+          '$G$2','$G$6','$B$3'
+        ]
+      },
+      {
+        cell:col+'27',
+        items:[
+          'AVERAGE('+col+'25:'+col+'26)',
+          col+'20','$E$3'
+        ]
+      },
+      {
+        cell:col+'28',
+        items:[col+'27','$I$16']
+      }
+    ];
+
+    for (const ref of refs) {
+      const formula = d
+        .getRange(ref.cell)
+        .getFormula();
+
+      if (
+        !formula ||
+        ref.items.some(s => !formula.includes(s))
+      ) {
+        throw Error(
+          'Unexpected result formula in Analyzer!'+
+          ref.cell+'; no data was imported.'
+        );
+      }
+    }
+  }
+
   aaCheckHeader_(a,AA_ANNUAL_FIELDS);
   aaCheckHeader_(q,AA_QUARTER_FIELDS);
 
