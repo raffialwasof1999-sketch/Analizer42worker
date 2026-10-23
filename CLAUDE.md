@@ -49,8 +49,8 @@ same PR.
 Formulas and notes in Analyzer I/J (except I2's text), B14:D17, H23+,
 rows 29+ (the "NOTES" block, from the worker's `?blankReasons=1`), notes on
 cells not listed above, the Historical P/E Data tab, Financial Data AF+ and
-Quarterly Data AA+ (`IMPORTDATA` columns: AA basic EPS, AB split-adjusted
-FCF per diluted share, AC net acquisitions).
+Quarterly Data AA+ (one `IMPORTDATA` in AA2, `quarterlyExtrasCsv=1`, fills
+AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 
 ## Worker rules (checked by `tests/sheet-compatibility.test.mjs`)
 
@@ -64,11 +64,17 @@ FCF per diluted share, AC net acquisitions).
 - A new field reaches the sheet only if it is added to the worker's field
   list, the script's field list and the data tab's header row, in one PR.
 - Extra response fields are ignored by the script and are safe.
-- The IMPORTDATA feeds (`basicEpsCsv` annual/quarterly, `fcfPerShareCsv`,
-  `netAcquisitionsCsv`, `blankReasons`) reuse the
+- The IMPORTDATA feeds reuse the
   import's calculation for 5 minutes (`routeRequest` in `src/index.js`);
   four separate calculations per refresh exceeded Cloudflare's resource
-  limits. Keep feed output derived from the main JSON.
+  limits. Keep feed output derived from the main JSON. The sheet uses three
+  feeds per refresh (four requests with the import): `basicEpsCsv=annual`
+  (Financial Data AF2), `quarterlyExtrasCsv=1` (Quarterly Data AA2, three
+  columns) and `blankReasons=1` (Analyzer A30). A new quarterly column
+  belongs in `QUARTERLY_EXTRAS` (appended), not in a new feed. The single
+  feeds (`basicEpsCsv=quarterly`, `fcfPerShareCsv`, `netAcquisitionsCsv`)
+  remain for inspection. Each numeric import retries once at `&retry=1` if
+  its first fetch fails.
 - Historical P/E Data!H4:H31 dates each quarter by Quarterly Data X
   (8-K earnings release), falling back to W (10-Q/10-K filing). Heavy
   filers' older quarters get W from Company Facts
