@@ -140,9 +140,25 @@ export function blankReasons(quarters,context={}){
     add(`Rev. Growth % (${years} Years)`,first(gap(n+4),why('revenue',n+4)));
   }
 
+  // Net acquisitions: 20 consecutive quarters; acquisitionsBasis (worker's
+  // ACQ_BASIS) says why a quarter is unknown or counted as $0.
+  const acqRows=q.slice(0,20);
+  const unknown=acqRows.filter(r=>!finite(r.netAcquisitions));
+  const basisCount=b=>acqRows.filter(r=>r.acquisitionsBasis===b).length;
+  const oldest=rows=>rows[rows.length-1].fiscalPeriodEnd;
+  let acqWhy=first(acqRows.length<20?`SEC data covers only ${acqRows.length} of the 20 quarters needed.`:null, gap(20));
+  if(!acqWhy&&unknown.length){
+    acqWhy=basisCount(3)
+      ? `${name} files no standard SEC figure for acquisitions; it likely uses a company-specific label, which SEC's data feed omits, so a missing line cannot be counted as $0.`
+      : basisCount(4)
+        ? `${name}'s footnotes report cash paid for acquisitions in ${basisCount(4)} of the last 20 quarters with no standard cash-flow line, so those amounts are unknown.`
+        : `SEC data has no cash-flow statement for ${unknown.length} of the last 20 quarters (oldest ${oldest(unknown)}), so acquisitions for those periods are unknown.`;
+  }
+  const assumed=basisCount(1);
+  add('Net Acquisitions (5-Year Total)',acqWhy||(assumed?`Shown, not blank: ${assumed} of the last 20 quarters have no acquisitions line in the cash-flow statement and count as $0 (companies list it only when material).`:null));
+
   // Cells the sheet does not calculate yet.
-  for(const metric of ['Forward Dividend Yield','Net Acquisitions (5-Year Total)'])
-    add(metric,'Not calculated yet: this cell is a placeholder in the sheet.');
+  add('Forward Dividend Yield','Not calculated yet: this cell is a placeholder in the sheet.');
 
   return out;
 }

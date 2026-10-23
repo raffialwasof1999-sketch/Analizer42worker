@@ -51,7 +51,11 @@ const QUARTER_FIELDS = [
   'cash','roic','dilutedShares','sharesOutstanding',
   'sharesOutstandingAsOf','secFilingDate','earningsDisclosureDate','basicEPS',
   // Not imported by the Apps Script; served as ?fcfPerShareCsv=quarterly.
-  'fcfPerShare'
+  'fcfPerShare',
+  // Not imported by the Apps Script; served as ?netAcquisitionsCsv=quarterly.
+  // netAcquisitions counts a missing acquisitions/divestitures line as 0 only
+  // when that is safe; acquisitionsBasis says how (ACQ_BASIS below).
+  'netAcquisitions','acquisitionsBasis'
 ];
 
 const TAGS = {
@@ -102,6 +106,9 @@ const TAGS = {
     'PaymentsToAcquireBusinessesNetOfCashAcquired',
     'PaymentsToAcquireBusinessesGross'
   ],
+  // Footnote total of cash paid for acquisitions: evidence of a deal even
+  // when the cash-flow line uses a company-specific label (Microsoft).
+  acquisitionDisclosure: ['BusinessAcquisitionCostOfAcquiredEntityCashPaid'],
   divestitures: [
     'ProceedsFromDivestitureOfBusinessesNetOfCashDivested',
     'ProceedsFromSaleOfBusinessesNetOfCashAndCashEquivalentsSold'
@@ -408,6 +415,40 @@ function buildAnnual(map,ends,cik=null) {
   );
 }
 
+/*
+ * Quarterly net acquisitions (cash paid for businesses, net of cash
+ * acquired, minus cash received for businesses sold). Cash-flow statements
+ * are year to date, so each quarter is this period's year-to-date figure
+ * minus the previous quarter's. A company shows these lines only when the
+ * amounts matter, so an absent line counts as 0, but only when:
+ * - the period's cash-flow statement was filed (operating cash flow present);
+ * - the company used the standard acquisitions line within ~5.5 years of the
+ *   period (otherwise it likely uses its own label, which SEC's data omits:
+ *   Microsoft);
+ * - no footnote reports cash paid for an acquisition in that period.
+ * Otherwise the quarter (and the next, which subtracts it) stays null.
+ */
+export const ACQ_BASIS={reported:0,countedZero:1,noStatement:2,noStandardLine:3,disclosedDeal:4};
+export function netAcquisitionsQuarter(r,map,end,isQ4,forms,prev,j) {
+  const kind=isQ4?'annual':'ytd';
+  const statement=val(map.operatingCashFlow||[],end,kind,forms)!==null;
+  const acqFiled=val(map.acquisitions||[],end,kind,forms);
+  const standard=(map.acquisitions||[]).some(f=>Math.abs(Date.parse(f.end)-Date.parse(end))<=2000*864e5);
+  const disclosed=n(val(map.acquisitionDisclosure||[],end,kind,forms))>0;
+  let basis, ytd=null;
+  if (!statement) basis=ACQ_BASIS.noStatement;
+  else if (acqFiled===null && !standard) basis=ACQ_BASIS.noStandardLine;
+  else if (acqFiled===null && disclosed) basis=ACQ_BASIS.disclosedDeal;
+  else {
+    basis=acqFiled===null?ACQ_BASIS.countedZero:ACQ_BASIS.reported;
+    const div=val(map.divestitures||[],end,kind,forms);
+    ytd=(acqFiled??0)-(div??0);
+  }
+  r.netAcquisitions = j===0 ? ytd : minus(ytd,prev.__netAcquisitions);
+  r.acquisitionsBasis = basis;
+  prev.__netAcquisitions=ytd;
+}
+
 function buildQuarterly(map,ends,cik=null) {
   const formsQ = ['10-Q','10-Q/A'];
   const formsY = ['10-K','10-K/A'];
@@ -506,6 +547,7 @@ function buildQuarterly(map,ends,cik=null) {
         r.debtEvidence=proof;
       }
       decorate(r,null,isBank(map));
+      netAcquisitionsQuarter(r,map,end,isQ4,forms,previousYtd,j);
       rows.push(r);
     }
   }
@@ -704,11 +746,13 @@ async function historicalSplitFilings(sub,cik,structuredEvidence) {
    concurrent feed requests share one calculation. Feed output is unchanged.
    ========================================================= */
 const FEED_REUSE_MS = 5*60*1000;
-const FEED_PARAMS = new Set(['ticker','basicEpsCsv','fcfPerShareCsv','blankReasons','revision','release','retry']);
+const FEED_PARAMS = new Set(['ticker','basicEpsCsv','fcfPerShareCsv','netAcquisitionsCsv','blankReasons','revision','release','retry']);
 const recent = new Map(); // ticker -> {at, promise of {status, body}}
 
 // One value per quarterly row, newest first; 'NA' keeps row positions.
-const fcfCsv = rows => rows.map(r=>n(r.fcfPerShare)!==null?String(r.fcfPerShare):'NA').join('\n')+'\n';
+const columnCsv = key => rows => rows.map(r=>n(r[key])!==null?String(r[key]):'NA').join('\n')+'\n';
+const fcfCsv = columnCsv('fcfPerShare');
+const acqCsv = columnCsv('netAcquisitions');
 
 function csvResponse(text) {
   return new Response(text,{headers:{
@@ -745,11 +789,14 @@ export async function routeRequest(request,handler=handleRequest) {
     return handler(request);
   const feed=url.searchParams.get('blankReasons')==='1' ? 'reasons'
     : url.searchParams.has('basicEpsCsv') ? 'basic'
-    : url.searchParams.has('fcfPerShareCsv') ? 'fcf' : null;
+    : url.searchParams.has('fcfPerShareCsv') ? 'fcf'
+    : url.searchParams.has('netAcquisitionsCsv') ? 'acq' : null;
   if (feed==='basic' && !['annual','quarterly'].includes(url.searchParams.get('basicEpsCsv')))
     return json({success:false,error:'Choose basicEpsCsv=annual or quarterly'},400);
   if (feed==='fcf' && url.searchParams.get('fcfPerShareCsv')!=='quarterly')
     return json({success:false,error:'Use fcfPerShareCsv=quarterly'},400);
+  if (feed==='acq' && url.searchParams.get('netAcquisitionsCsv')!=='quarterly')
+    return json({success:false,error:'Use netAcquisitionsCsv=quarterly'},400);
 
   let result;
   if (!feed) {
@@ -767,6 +814,7 @@ export async function routeRequest(request,handler=handleRequest) {
   const data=JSON.parse(result.body);
   if (feed==='reasons') return csvResponse(blankReasonsCsv(data.blankReasons||[],ticker));
   if (feed==='fcf') return csvResponse(fcfCsv(data.quarterlyFinancials));
+  if (feed==='acq') return csvResponse(acqCsv(data.quarterlyFinancials));
   const records=url.searchParams.get('basicEpsCsv')==='annual'?data.annualFinancials:data.quarterlyFinancials;
   return csvResponse(records.map(r=>n(r.basicEPS)!==null?String(r.basicEPS):'NA').join('\n')+'\n');
 }
@@ -1157,6 +1205,11 @@ async function handleRequest(request) {
       if (fcfShareCsv !== null) {
         if (fcfShareCsv!=='quarterly') return json({success:false,error:'Use fcfPerShareCsv=quarterly'},400);
         return csvResponse(fcfCsv(finalQuarterly));
+      }
+      const netAcqCsv = url.searchParams.get('netAcquisitionsCsv');
+      if (netAcqCsv !== null) {
+        if (netAcqCsv!=='quarterly') return json({success:false,error:'Use netAcquisitionsCsv=quarterly'},400);
+        return csvResponse(acqCsv(finalQuarterly));
       }
       const basicCsv = url.searchParams.get('basicEpsCsv');
       if (basicCsv !== null) {

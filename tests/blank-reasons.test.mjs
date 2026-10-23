@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import {blankReasons,blankReasonsCsv} from '../src/blank-reasons.js';
 
 const full=(n=48)=>Array.from({length:n},(_,i)=>({fiscalYear:2026-Math.floor(i/4),fiscalQuarter:4-(i%4),
-  fiscalPeriodEnd:`${2026-Math.floor(i/4)}-${String(12-3*(i%4)).padStart(2,'0')}-30`,netIncome:20,freeCashFlow:25,fcfPerShare:2.5,
+  fiscalPeriodEnd:`${2026-Math.floor(i/4)}-${String(12-3*(i%4)).padStart(2,'0')}-30`,netIncome:20,freeCashFlow:25,fcfPerShare:2.5,netAcquisitions:1,acquisitionsBasis:0,
   dilutedEPS:2-i*0.02,revenue:100,dilutedShares:10,operatingCashFlow:30,capitalExpenditures:5,
   operatingIncome:25,incomeTaxExpense:5,incomeBeforeTax:24,investedCapital:300,totalDebt:50,cash:20,stockholdersEquity:270}));
 const metrics=r=>r.map(x=>x.metric);
 
-const PLACEHOLDERS=['Forward Dividend Yield','Net Acquisitions (5-Year Total)'];
+const PLACEHOLDERS=['Forward Dividend Yield'];
 test('a complete, growing company only lacks the forward PEG and placeholder cells',()=>{
   assert.deepEqual(metrics(blankReasons(full(),{companyName:'Example'})),['PEG Ratio (Forward 3 Years)',...PLACEHOLDERS]);
 });
@@ -84,4 +84,18 @@ test('5-year Price / FCF: computed when inputs exist, explained when not', () =>
   assert.equal(blankReasons(brief,{}).find(x=>x.metric==='Price / FCF (5-Year Avg.)'),undefined);
   const noCapex=full().map(r=>({...r,capitalExpenditures:null}));
   assert.match(blankReasons(noCapex,{companyName:'X'}).find(x=>x.metric==='Price / FCF (5-Year Avg.)').reason,/Capital expenditures/i);
+});
+
+test('Net Acquisitions: unknown quarters blank it; quarters counted as $0 are reported',()=>{
+  const reason=q=>blankReasons(q,{companyName:'Example'}).find(r=>r.metric==='Net Acquisitions (5-Year Total)')?.reason;
+  const none=full(); for(const i of [7,12]){none[i].netAcquisitions=null;none[i].acquisitionsBasis=2;}
+  assert.match(reason(none),/no cash-flow statement for 2 of the last 20 quarters \(oldest 2023-12-30\)/);
+  const assumed=full(); for(let i=0;i<12;i++)assumed[i].acquisitionsBasis=1;
+  assert.match(reason(assumed),/^Shown, not blank: 12 of the last 20 quarters/);
+  assert.equal(reason(full()),undefined);
+  assert.match(reason(full(15)),/covers only 15 of the 20/);
+  const custom=full(); for(const r of custom){r.netAcquisitions=null;r.acquisitionsBasis=3;}
+  assert.match(reason(custom),/no standard SEC figure for acquisitions; it likely uses a company-specific label/);
+  const deal=full(); deal[3].netAcquisitions=null; deal[3].acquisitionsBasis=4;
+  assert.match(reason(deal),/footnotes report cash paid for acquisitions in 1 of the last 20 quarters/);
 });
