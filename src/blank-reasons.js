@@ -140,9 +140,19 @@ export function blankReasons(quarters,context={}){
     add(`Rev. Growth % (${years} Years)`,first(gap(n+4),why('revenue',n+4)));
   }
 
+  // Net acquisitions: 20 consecutive quarters, each with a filed cash-flow
+  // statement (a missing acquisitions/divestitures line counts as 0 then).
+  const acqRows=q.slice(0,20);
+  const noStatement=acqRows.filter(r=>!finite(r.netAcquisitions));
+  const assumed=acqRows.filter(r=>r.acquisitionsLineMissing===1).length;
+  add('Net Acquisitions (5-Year Total)',first(
+    acqRows.length<20?`SEC data covers only ${acqRows.length} of the 20 quarters needed.`:null,
+    gap(20),
+    noStatement.length?`SEC data has no cash-flow statement for ${noStatement.length} of the last 20 quarters (oldest ${noStatement[noStatement.length-1].fiscalPeriodEnd}), so acquisitions for those periods are unknown.`:null,
+    assumed?`Shown, not blank: ${assumed} of the last 20 quarters have no acquisitions line in the cash-flow statement and count as $0 (companies list it only when material).`:null));
+
   // Cells the sheet does not calculate yet.
-  for(const metric of ['Forward Dividend Yield','Net Acquisitions (5-Year Total)'])
-    add(metric,'Not calculated yet: this cell is a placeholder in the sheet.');
+  add('Forward Dividend Yield','Not calculated yet: this cell is a placeholder in the sheet.');
 
   return out;
 }

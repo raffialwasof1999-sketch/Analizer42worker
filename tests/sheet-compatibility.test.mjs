@@ -98,7 +98,7 @@ test('feeds served from the shared calculation match the direct calculation byte
     throw Error('Unexpected SEC fetch ' + url);
   };
   try {
-    for (const feed of ['basicEpsCsv=quarterly', 'basicEpsCsv=annual', 'fcfPerShareCsv=quarterly', 'blankReasons=1']) {
+    for (const feed of ['basicEpsCsv=quarterly', 'basicEpsCsv=annual', 'fcfPerShareCsv=quarterly', 'netAcquisitionsCsv=quarterly', 'blankReasons=1']) {
       resetFeedReuse();
       // An unknown extra parameter bypasses reuse and runs the original path.
       const direct = await (await routeRequest(new Request('https://w.test/?ticker=TEST&' + feed + '&bypass=1'))).text();
