@@ -1,0 +1,68 @@
+name: Refresh sheet
+
+# Starts the Active Analyzer SEC refresh through the sheet's refresh web app
+# (doGet in apps-script/Code.gs), optionally switching the ticker first.
+# Edits through the Sheets API do not fire the sheet's edit trigger, so
+# tools that cannot type in the sheet use this instead.
+#
+# The web app's address is the repository secret SHEET_REFRESH_URL. It is
+# never printed: this repository is public, and the address alone lets
+# someone trigger a refresh.
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: Ticker to switch to (empty = refresh the current one)
+        required: false
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: refresh-sheet
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the refresh web app
+        env:
+          URL: ${{ secrets.SHEET_REFRESH_URL }}
+          TICKER: ${{ inputs.ticker }}
+        run: |
+          set -euo pipefail
+          if [ -z "${URL:-}" ]; then
+            echo "::error title=Refresh sheet::The SHEET_REFRESH_URL secret is not set."
+            exit 1
+          fi
+          TICKER=$(printf '%s' "$TICKER" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
+          if [ -n "$TICKER" ] && ! printf '%s' "$TICKER" | grep -Eq '^[A-Z0-9.-]{1,12}$'; then
+            echo "::error title=Refresh sheet::Invalid ticker."
+            exit 1
+          fi
+          args=(-sS -L --max-time 240 -G "$URL")
+          [ -n "$TICKER" ] && args+=(--data-urlencode "ticker=$TICKER")
+          body=$(curl "${args[@]}" 2>/dev/null) || { echo "::error title=Refresh sheet::The web app could not be reached."; exit 1; }
+          # Print only the script's JSON reply, never the address or redirects.
+          result=$(printf '%s' "$body" | python3 -c '
+          import json, sys
+          try:
+              d = json.loads(sys.stdin.read())
+          except Exception:
+              print("ERROR|The web app did not return JSON (is it deployed with access: Anyone?)."); sys.exit()
+          if d.get("ok"):
+              print("OK|Refreshed %s (%s), imported %s." % (d.get("ticker"), d.get("company"), d.get("importedAt")))
+          else:
+              print("ERROR|" + str(d.get("error"))[:300])
+          ')
+          msg=${result#*|}
+          echo "$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${result%%|*}" = OK ]; then
+            echo "::notice title=Refresh sheet::$msg"
+          else
+            echo "::error title=Refresh sheet::$msg"
+            exit 1
+          fi

@@ -26,6 +26,11 @@ replying with JSON. Its URL is in the sheet's developer metadata (key
 (GitHub)" (stable across deploys); never commit or log it (this repository
 is public). The call's reply is a redirect that WebFetch reports as an
 error even though the refresh ran: confirm through Quarterly Data Y2/Z2.
+WebFetch is unreliable for this (it can replay an earlier query string, so
+it may switch the ticker unexpectedly): instead run the "Refresh sheet"
+workflow (`gh api repos/<repo>/actions/workflows/refresh-sheet.yml/dispatches
+-f ref=main -f inputs[ticker]=MSFT`), which calls the web app through the
+`SHEET_REFRESH_URL` secret and reports the result as an annotation.
 GOOGLEFINANCE price history can't be read by any API, so I5/I15 and the
 Historical P/E Data tab still need a screenshot to check.
 
