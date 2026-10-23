@@ -50,7 +50,7 @@ Formulas and notes in Analyzer I/J (except I2's text), B14:D17, H23+,
 rows 29+ (the "NOTES" block, from the worker's `?blankReasons=1`), notes on
 cells not listed above, the Historical P/E Data tab, Financial Data AF+ and
 Quarterly Data AA+ (`IMPORTDATA` columns: AA basic EPS, AB split-adjusted
-FCF per diluted share).
+FCF per diluted share, AC net acquisitions).
 
 ## Worker rules (checked by `tests/sheet-compatibility.test.mjs`)
 
@@ -65,7 +65,7 @@ FCF per diluted share).
   list, the script's field list and the data tab's header row, in one PR.
 - Extra response fields are ignored by the script and are safe.
 - The IMPORTDATA feeds (`basicEpsCsv` annual/quarterly, `fcfPerShareCsv`,
-  `blankReasons`) reuse the
+  `netAcquisitionsCsv`, `blankReasons`) reuse the
   import's calculation for 5 minutes (`routeRequest` in `src/index.js`);
   four separate calculations per refresh exceeded Cloudflare's resource
   limits. Keep feed output derived from the main JSON.
@@ -78,6 +78,13 @@ FCF per diluted share).
   known on each trading date, S = daily price / FCF, R2/S2 = average and
   day count. Same window and checks as the 5-year P/E (I5, columns C/D,
   K2/L2). The tab has 19 columns (A:S).
+- Net Acquisitions (5-Year Total) (Analyzer I22) = SUM of Quarterly Data
+  AC2:AC21 (`netAcquisitions`), with the ticker-match and 20-consecutive-
+  quarter checks. A missing acquisitions/divestitures line counts as $0
+  only when safe (`acquisitionsBasis` in `netAcquisitionsQuarter`);
+  otherwise the quarter is null and I22 shows "-".
+- Sheets caches IMPORTDATA by URL: when a feed's output changes without a
+  new import, bump its `&release=` tag.
 
 ## Checklist for every requested change
 
