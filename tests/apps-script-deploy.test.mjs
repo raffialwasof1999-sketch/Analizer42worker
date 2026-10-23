@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { localFiles, digest, decide, changedFiles, run } from '../scripts/apps-script-deploy.mjs';
+import { localFiles, digest, decide, changedFiles, run, withoutWebApp, RETIRED_WEBAPP } from '../scripts/apps-script-deploy.mjs';
 import { SCRIPT_ID, PARENT_ID } from '../scripts/apps-script-readonly.mjs';
 
 const manifest = { name: 'appsscript', type: 'JSON', source: '{"timeZone":"America/Los_Angeles"}' };
@@ -12,11 +12,15 @@ const html = src => ({ name: 'TickerSearch2', type: 'HTML', source: src });
 const raw = JSON.stringify({ tokens: { default: { client_id: 'id', client_secret: 's', refresh_token: 'r', type: 'authorized_user' } } });
 
 // Simulated Google: tracks the live project, versions and uploads.
-function google(liveFiles, { mangleUpload = false } = {}) {
-  const state = { live: [manifest, ...liveFiles], versions: 0, uploads: [] };
+function google(liveFiles, { mangleUpload = false, deployments = [], liveManifest = manifest } = {}) {
+  const state = { live: [liveManifest, ...liveFiles], versions: 0, uploads: [], deleted: [] };
   const fetcher = async (url, opts) => {
     const reply = body => ({ ok: true, json: async () => body });
     if (url.includes('oauth2')) return reply({ access_token: 't' });
+    if (url.includes('/deployments')) {
+      if (opts.method === 'DELETE') { state.deleted.push(url.split('/deployments/')[1]); return { ok: true, json: async () => { throw Error('empty'); } }; }
+      return reply({ deployments });
+    }
     if (url.endsWith('/versions')) { state.versions++; return reply({ scriptId: SCRIPT_ID, versionNumber: 40 + state.versions }); }
     if (url.endsWith('/content') && opts.method === 'PUT') {
       const files = JSON.parse(opts.body).files;
@@ -90,4 +94,17 @@ test('a read-back mismatch fails loudly and names the backup', async () => {
   const g = google([code('v1')], { mangleUpload: true });
   await assert.rejects(run({ raw, previous: [code('v1')], next: [code('v2')], fetcher: g.fetcher }),
     /restore backup version 41/);
+});
+
+test('the retired refresh web app is deleted and its manifest setting removed; nothing else changes', async () => {
+  const live = { ...manifest, source: '{"timeZone":"America/Los_Angeles","webapp":{"executeAs":"USER_DEPLOYING","access":"ANYONE_ANONYMOUS"}}' };
+  const g = google([code('v1')], { liveManifest: live, deployments: [
+    { deploymentId: 'SECRET-ID', deploymentConfig: { description: RETIRED_WEBAPP } },
+    { deploymentId: 'keep', deploymentConfig: { description: 'something else' } }] });
+  const msg = await run({ raw, previous: [code('v1')], next: [code('v2')], fetcher: g.fetcher });
+  assert.match(msg, /Retired refresh web app removed\./);
+  assert.deepEqual(g.state.deleted, ['SECRET-ID']);
+  assert.ok(!msg.includes('SECRET-ID'));
+  assert.deepEqual(JSON.parse(g.state.uploads[0][0].source), { timeZone: 'America/Los_Angeles' });
+  assert.equal(withoutWebApp(manifest), manifest);                       // no webapp: untouched
 });

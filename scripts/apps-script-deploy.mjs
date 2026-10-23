@@ -7,7 +7,10 @@
  * stops and says which files differ. Every write is preceded by a numbered
  * version backup in Google and followed by a read-back check.
  *
- * The project manifest (appsscript.json) is kept as it is live.
+ * The project manifest (appsscript.json) is kept as it is live, except that
+ * any "webapp" setting is removed and the retired refresh web app deployment
+ * ("Active Analyzer refresh (GitHub)") is deleted, so it stops serving old
+ * code.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
@@ -73,8 +76,29 @@ async function request(fetcher, url, method, body, token, label) {
     });
   } catch { throw new SafeError(label + ': network failure; no private response logged.'); }
   if (!response.ok) throw new SafeError(label + ': HTTP ' + response.status + '; no private response logged.');
+  if (method === 'DELETE') return {};
   try { return await response.json(); }
   catch { throw new SafeError(label + ': invalid response; no private content logged.'); }
+}
+
+export const RETIRED_WEBAPP = 'Active Analyzer refresh (GitHub)';
+
+/** The live manifest without a "webapp" setting (other keys unchanged). */
+export function withoutWebApp(manifest) {
+  let json;
+  try { json = JSON.parse(manifest.source); } catch { return manifest; }
+  if (!('webapp' in json)) return manifest;
+  delete json.webapp;
+  return { ...manifest, source: JSON.stringify(json, null, 2) };
+}
+
+/** Delete the retired web app deployment. Returns how many were deleted; never logs ids. */
+async function retireWebApp(fetcher, base, token) {
+  const list = await request(fetcher, base + '/deployments?pageSize=50', 'GET', undefined, token, 'Deployment lookup');
+  const retired = (list.deployments || []).filter(d => d?.deploymentConfig?.description === RETIRED_WEBAPP);
+  for (const d of retired)
+    await request(fetcher, base + '/deployments/' + encodeURIComponent(d.deploymentId), 'DELETE', undefined, token, 'Deployment removal');
+  return retired.length;
 }
 
 function projectFiles(content) {
@@ -123,14 +147,18 @@ export async function run({ raw, next, previous = [], mode = 'deploy', overwrite
   const latest = projectFiles(await request(fetcher, base + '/content', 'GET', undefined, token, 'Concurrent edit check'));
   if (digest(latest) !== digest(live)) throw new SafeError('The live script changed during the deploy; nothing was written.');
 
-  const manifest = live.find(f => f.type === 'JSON' && f.name === 'appsscript');
+  const manifest = withoutWebApp(live.find(f => f.type === 'JSON' && f.name === 'appsscript'));
   const changed = changedFiles(live, next);
   await request(fetcher, base + '/content', 'PUT', { files: [manifest, ...next] }, token, 'Source upload');
   const after = projectFiles(await request(fetcher, base + '/content', 'GET', undefined, token, 'Post-upload verification'));
   if (digest(after) !== digest(next))
     throw new SafeError('Post-upload source differs from GitHub; restore backup version ' + backup.versionNumber + ' in Project history if needed.');
+  let retired = '';
+  try { const n = await retireWebApp(fetcher, base, token); if (n) retired = ' Retired refresh web app removed.'; }
+  catch (error) { retired = ' WARNING: the retired refresh web app could not be removed (' +
+    (error instanceof SafeError ? error.message : 'details suppressed') + '); delete it in Deploy > Manage deployments.'; }
   return 'Deployed to the live Apps Script: ' + changed.join(', ') +
-    '. Backup saved in Google as version ' + backup.versionNumber + ' (Project history).';
+    '. Backup saved in Google as version ' + backup.versionNumber + ' (Project history).' + retired;
 }
 
 async function main() {
@@ -147,7 +175,7 @@ async function main() {
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
   // Annotations stay visible on the pull request and commit.
-  console.log(summary.startsWith('WARNING') ? '::warning title=Apps Script drift::' + summary
+  console.log(summary.includes('WARNING') ? '::warning title=Apps Script::' + summary
     : '::notice title=Apps Script::' + summary);
 }
 
