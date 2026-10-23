@@ -133,3 +133,9 @@ test('the metric names in column H are free to rename (no layout check on them)'
   assert.ok(!scriptSource.includes("getRange('H4:H22')"));
   assert.ok(!/AA_METRICS/.test(scriptSource));
 });
+
+test('the metrics-table headings H2, I2 and J2 are free to rename', () => {
+  assert.ok(!/H2\s*:\s*'Metric'/.test(scriptSource));
+  assert.ok(!/J2\s*:\s*'Google Finance Numbers'/.test(scriptSource));
+  assert.ok(!scriptSource.includes("getRange('I2')"));
+});
