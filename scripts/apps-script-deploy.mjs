@@ -7,12 +7,7 @@
  * stops and says which files differ. Every write is preceded by a numbered
  * version backup in Google and followed by a read-back check.
  *
- * The project manifest (appsscript.json) is kept as it is live, except for
- * its "webapp" settings, which publish the refresh web app (doGet in
- * Code.gs). After each upload the web app deployment is pointed at the new
- * code. Its address is never logged: this repository is public, and the
- * address alone lets someone trigger a refresh. The script stores it in the
- * sheet's private developer metadata instead.
+ * The project manifest (appsscript.json) is kept as it is live.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
@@ -82,38 +77,6 @@ async function request(fetcher, url, method, body, token, label) {
   catch { throw new SafeError(label + ': invalid response; no private content logged.'); }
 }
 
-export const WEBAPP = Object.freeze({ executeAs: 'USER_DEPLOYING', access: 'ANYONE_ANONYMOUS' });
-export const WEBAPP_DESCRIPTION = 'Active Analyzer refresh (GitHub)';
-
-/** The live manifest with the web app settings set (other keys unchanged). */
-export function withWebApp(manifest) {
-  let json;
-  try { json = JSON.parse(manifest.source); } catch { throw new SafeError('Project manifest is not valid JSON.'); }
-  json.webapp = { ...WEBAPP };
-  return { ...manifest, source: JSON.stringify(json, null, 2) };
-}
-
-/**
- * Point the web app deployment at a new version of the uploaded code,
- * creating it the first time. Returns 'created' or 'updated'; never returns
- * or logs the deployment id (it is the web app's address).
- */
-async function publishWebApp(fetcher, base, token, note) {
-  const version = await request(fetcher, base + '/versions', 'POST',
-    { description: ('GitHub deploy ' + note).trim().slice(0, 200) }, token, 'Web app version');
-  if (!Number.isInteger(version.versionNumber)) throw new SafeError('Web app version response invalid.');
-  const list = await request(fetcher, base + '/deployments?pageSize=50', 'GET', undefined, token, 'Web app lookup');
-  const existing = (list.deployments || []).find(d => d?.deploymentConfig?.description === WEBAPP_DESCRIPTION);
-  const config = { scriptId: SCRIPT_ID, versionNumber: version.versionNumber, manifestFileName: 'appsscript', description: WEBAPP_DESCRIPTION };
-  if (existing) {
-    await request(fetcher, base + '/deployments/' + encodeURIComponent(existing.deploymentId), 'PUT',
-      { deploymentConfig: config }, token, 'Web app update');
-    return 'updated';
-  }
-  await request(fetcher, base + '/deployments', 'POST', config, token, 'Web app creation');
-  return 'created';
-}
-
 function projectFiles(content) {
   if (content?.scriptId !== SCRIPT_ID || !Array.isArray(content.files) || !content.files.length)
     throw new SafeError('Invalid project source returned by Google.');
@@ -160,18 +123,14 @@ export async function run({ raw, next, previous = [], mode = 'deploy', overwrite
   const latest = projectFiles(await request(fetcher, base + '/content', 'GET', undefined, token, 'Concurrent edit check'));
   if (digest(latest) !== digest(live)) throw new SafeError('The live script changed during the deploy; nothing was written.');
 
-  const manifest = withWebApp(live.find(f => f.type === 'JSON' && f.name === 'appsscript'));
+  const manifest = live.find(f => f.type === 'JSON' && f.name === 'appsscript');
   const changed = changedFiles(live, next);
   await request(fetcher, base + '/content', 'PUT', { files: [manifest, ...next] }, token, 'Source upload');
   const after = projectFiles(await request(fetcher, base + '/content', 'GET', undefined, token, 'Post-upload verification'));
   if (digest(after) !== digest(next))
     throw new SafeError('Post-upload source differs from GitHub; restore backup version ' + backup.versionNumber + ' in Project history if needed.');
-  let webapp;
-  try { webapp = 'Refresh web app ' + await publishWebApp(fetcher, base, token, note) + '.'; }
-  catch (error) { webapp = 'WARNING: the code deployed, but the refresh web app was not updated (' +
-    (error instanceof SafeError ? error.message : 'details suppressed') + ').'; }
   return 'Deployed to the live Apps Script: ' + changed.join(', ') +
-    '. Backup saved in Google as version ' + backup.versionNumber + ' (Project history). ' + webapp;
+    '. Backup saved in Google as version ' + backup.versionNumber + ' (Project history).';
 }
 
 async function main() {
@@ -188,7 +147,7 @@ async function main() {
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
   // Annotations stay visible on the pull request and commit.
-  console.log(summary.includes('WARNING') ? '::warning title=Apps Script::' + summary
+  console.log(summary.startsWith('WARNING') ? '::warning title=Apps Script drift::' + summary
     : '::notice title=Apps Script::' + summary);
 }
 

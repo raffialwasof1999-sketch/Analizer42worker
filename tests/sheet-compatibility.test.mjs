@@ -133,10 +133,3 @@ test('the metric names in column H are free to rename (no layout check on them)'
   assert.ok(!scriptSource.includes("getRange('H4:H22')"));
   assert.ok(!/AA_METRICS/.test(scriptSource));
 });
-
-test('the refresh web app sets B2 only through the ticker validator and never logs its own URL', () => {
-  const body = scriptSource.slice(scriptSource.indexOf('function doGet('), scriptSource.indexOf('function aaPublishRefreshUrl_('));
-  assert.match(body, /setValue\(aaTicker_\(params\.ticker\)\)/);
-  assert.match(body, /refreshStockAnalyzer\(\)/);
-  assert.ok(!/console\.(log|error)\([^)]*getUrl/.test(scriptSource));
-});

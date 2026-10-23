@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { localFiles, digest, decide, changedFiles, run, withWebApp, WEBAPP_DESCRIPTION } from '../scripts/apps-script-deploy.mjs';
+import { localFiles, digest, decide, changedFiles, run } from '../scripts/apps-script-deploy.mjs';
 import { SCRIPT_ID, PARENT_ID } from '../scripts/apps-script-readonly.mjs';
 
 const manifest = { name: 'appsscript', type: 'JSON', source: '{"timeZone":"America/Los_Angeles"}' };
@@ -12,17 +12,11 @@ const html = src => ({ name: 'TickerSearch2', type: 'HTML', source: src });
 const raw = JSON.stringify({ tokens: { default: { client_id: 'id', client_secret: 's', refresh_token: 'r', type: 'authorized_user' } } });
 
 // Simulated Google: tracks the live project, versions and uploads.
-function google(liveFiles, { mangleUpload = false, deployments = [], failDeployments = false } = {}) {
-  const state = { live: [manifest, ...liveFiles], versions: 0, uploads: [], deployments, deployCalls: [] };
+function google(liveFiles, { mangleUpload = false } = {}) {
+  const state = { live: [manifest, ...liveFiles], versions: 0, uploads: [] };
   const fetcher = async (url, opts) => {
     const reply = body => ({ ok: true, json: async () => body });
     if (url.includes('oauth2')) return reply({ access_token: 't' });
-    if (url.includes('/deployments')) {
-      if (failDeployments) return { ok: false, status: 403, json: async () => ({}) };
-      state.deployCalls.push([opts.method, url.replace(/.*\/deployments/, '/deployments'), opts.body && JSON.parse(opts.body)]);
-      if (opts.method === 'GET') return reply({ deployments: state.deployments });
-      return reply({ deploymentId: 'SECRET-DEPLOYMENT-ID' });
-    }
     if (url.endsWith('/versions')) { state.versions++; return reply({ scriptId: SCRIPT_ID, versionNumber: 40 + state.versions }); }
     if (url.endsWith('/content') && opts.method === 'PUT') {
       const files = JSON.parse(opts.body).files;
@@ -62,9 +56,8 @@ test('deploy backs up, uploads GitHub code, keeps the manifest, verifies', async
   const g = google([code('v1'), html('h')]);
   const msg = await run({ raw, previous: [code('v1'), html('h')], next: [code('v2'), html('h')], fetcher: g.fetcher });
   assert.match(msg, /Deployed to the live Apps Script: Code\. Backup saved in Google as version 41/);
-  assert.equal(g.state.versions, 2);                                     // backup + the web app's version
-  assert.deepEqual(g.state.uploads[0], [withWebApp(manifest), code('v2'), html('h')]);
-  assert.equal(JSON.parse(g.state.uploads[0][0].source).timeZone, 'America/Los_Angeles'); // other manifest keys kept
+  assert.equal(g.state.versions, 1);
+  assert.deepEqual(g.state.uploads[0], [manifest, code('v2'), html('h')]);
 });
 
 test('already in sync: nothing written', async () => {
@@ -83,7 +76,7 @@ test('an edit made in Google is never overwritten without being asked', async ()
   assert.match(check, /^WARNING: The live Apps Script was changed outside GitHub/);
   const forced = await run({ raw, previous: [code('v1')], next: [code('v2')], overwrite: true, fetcher: g.fetcher });
   assert.match(forced, /Deployed/);
-  assert.equal(g.state.versions, 2);                                     // still backed up first
+  assert.equal(g.state.versions, 1);                                     // still backed up first
 });
 
 test('check mode is read-only', async () => {
@@ -97,28 +90,4 @@ test('a read-back mismatch fails loudly and names the backup', async () => {
   const g = google([code('v1')], { mangleUpload: true });
   await assert.rejects(run({ raw, previous: [code('v1')], next: [code('v2')], fetcher: g.fetcher }),
     /restore backup version 41/);
-});
-
-test('the refresh web app is created once, then repointed at each new version; its address is never output', async () => {
-  const first = google([code('v1')]);
-  const msg = await run({ raw, previous: [code('v1')], next: [code('v2')], fetcher: first.fetcher });
-  assert.match(msg, /Refresh web app created\./);
-  const created = first.state.deployCalls.find(c => c[0] === 'POST');
-  assert.deepEqual(created[2], { scriptId: SCRIPT_ID, versionNumber: 42, manifestFileName: 'appsscript', description: WEBAPP_DESCRIPTION });
-  assert.deepEqual(JSON.parse(first.state.uploads[0][0].source).webapp, { executeAs: 'USER_DEPLOYING', access: 'ANYONE_ANONYMOUS' });
-
-  const again = google([code('v2')], { deployments: [{ deploymentId: 'SECRET-DEPLOYMENT-ID', deploymentConfig: { description: WEBAPP_DESCRIPTION } },
-    { deploymentId: 'other', deploymentConfig: { description: 'something else' } }] });
-  const msg2 = await run({ raw, previous: [code('v2')], next: [code('v3')], fetcher: again.fetcher });
-  assert.match(msg2, /Refresh web app updated\./);
-  const put = again.state.deployCalls.find(c => c[0] === 'PUT');
-  assert.equal(put[1], '/deployments/SECRET-DEPLOYMENT-ID');
-  assert.equal(put[2].deploymentConfig.versionNumber, 42);
-  for (const m of [msg, msg2]) assert.ok(!m.includes('SECRET-DEPLOYMENT-ID'));
-});
-
-test('a web app failure is a warning: the code deploy itself still succeeds', async () => {
-  const g = google([code('v1')], { failDeployments: true });
-  const msg = await run({ raw, previous: [code('v1')], next: [code('v2')], fetcher: g.fetcher });
-  assert.match(msg, /Deployed to the live Apps Script: Code\..*WARNING: the code deployed, but the refresh web app was not updated \(Web app lookup: HTTP 403/);
 });
