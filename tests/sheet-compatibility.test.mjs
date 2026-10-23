@@ -136,8 +136,7 @@ test('the metric names in column H are free to rename (no layout check on them)'
 
 test('the refresh web app sets B2 only through the ticker validator and never logs its own URL', () => {
   const body = scriptSource.slice(scriptSource.indexOf('function doGet('), scriptSource.indexOf('function aaTickerEdited('));
-  assert.match(body, /setValue\(aaTicker_\(requested\)\)/);
-  assert.match(body, /e\.pathInfo/);
+  assert.match(body, /setValue\(aaTicker_\(params\.ticker\)\)/);
   assert.match(body, /refreshStockAnalyzer\(\)/);
   assert.ok(!scriptSource.includes('getUrl('));                     // returns the wrong address
 });

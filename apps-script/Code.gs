@@ -739,7 +739,6 @@ function aaRemoveTickerTriggers_(notify) {
  * Edits through the Sheets API do not fire onEdit, so tools (the Sheets
  * connector) start a refresh by calling this web app instead:
  *   <web app URL>?ticker=MSFT   sets B2 to MSFT, then refreshes
- *   <web app URL>/MSFT          the same, for tools that drop query strings
  *   <web app URL>               refreshes the current B2
  * It replies with JSON: {ok, ticker, company, importedAt} or {ok:false, error}.
  * The URL is not published anywhere public. It is kept in the sheet's
@@ -754,10 +753,8 @@ function doGet(e) {
   let result;
   try {
     const {d,q} = aaSheets_();
-    const requested = params.ticker ||
-      String((e && e.pathInfo) || '').split('/')[0];
-    if (requested) {
-      d.getRange(AA.tickerCell).setValue(aaTicker_(requested));
+    if (params.ticker) {
+      d.getRange(AA.tickerCell).setValue(aaTicker_(params.ticker));
       SpreadsheetApp.flush();
     }
     refreshStockAnalyzer();
