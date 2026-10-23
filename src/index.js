@@ -54,9 +54,8 @@ const QUARTER_FIELDS = [
   'fcfPerShare',
   // Not imported by the Apps Script; served as ?netAcquisitionsCsv=quarterly.
   // netAcquisitions counts a missing acquisitions/divestitures line as 0 only
-  // when the period's cash-flow statement was filed; acquisitionsLineMissing
-  // is 1 for quarters whose acquisitions line was absent (counted as 0).
-  'netAcquisitions','acquisitionsLineMissing'
+  // when that is safe; acquisitionsBasis says how (ACQ_BASIS below).
+  'netAcquisitions','acquisitionsBasis'
 ];
 
 const TAGS = {
@@ -107,6 +106,9 @@ const TAGS = {
     'PaymentsToAcquireBusinessesNetOfCashAcquired',
     'PaymentsToAcquireBusinessesGross'
   ],
+  // Footnote total of cash paid for acquisitions: evidence of a deal even
+  // when the cash-flow line uses a company-specific label (Microsoft).
+  acquisitionDisclosure: ['BusinessAcquisitionCostOfAcquiredEntityCashPaid'],
   divestitures: [
     'ProceedsFromDivestitureOfBusinessesNetOfCashDivested',
     'ProceedsFromSaleOfBusinessesNetOfCashAndCashEquivalentsSold'
@@ -418,18 +420,32 @@ function buildAnnual(map,ends,cik=null) {
  * acquired, minus cash received for businesses sold). Cash-flow statements
  * are year to date, so each quarter is this period's year-to-date figure
  * minus the previous quarter's. A company shows these lines only when the
- * amounts matter, so a line absent from a period whose cash-flow statement
- * was filed (operating cash flow present) counts as 0; without a cash-flow
- * statement the quarter stays null.
+ * amounts matter, so an absent line counts as 0, but only when:
+ * - the period's cash-flow statement was filed (operating cash flow present);
+ * - the company used the standard acquisitions line within ~5.5 years of the
+ *   period (otherwise it likely uses its own label, which SEC's data omits:
+ *   Microsoft);
+ * - no footnote reports cash paid for an acquisition in that period.
+ * Otherwise the quarter (and the next, which subtracts it) stays null.
  */
+export const ACQ_BASIS={reported:0,countedZero:1,noStatement:2,noStandardLine:3,disclosedDeal:4};
 export function netAcquisitionsQuarter(r,map,end,isQ4,forms,prev,j) {
   const kind=isQ4?'annual':'ytd';
-  const statement=val(map.operatingCashFlow,end,kind,forms)!==null;
-  const line=k=>{ const v=val(map[k],end,kind,forms); return v!==null?v:(statement?0:null); };
-  const acq=line('acquisitions'), div=line('divestitures');
-  const ytd=acq!==null&&div!==null?acq-div:null;
+  const statement=val(map.operatingCashFlow||[],end,kind,forms)!==null;
+  const acqFiled=val(map.acquisitions||[],end,kind,forms);
+  const standard=(map.acquisitions||[]).some(f=>Math.abs(Date.parse(f.end)-Date.parse(end))<=2000*864e5);
+  const disclosed=n(val(map.acquisitionDisclosure||[],end,kind,forms))>0;
+  let basis, ytd=null;
+  if (!statement) basis=ACQ_BASIS.noStatement;
+  else if (acqFiled===null && !standard) basis=ACQ_BASIS.noStandardLine;
+  else if (acqFiled===null && disclosed) basis=ACQ_BASIS.disclosedDeal;
+  else {
+    basis=acqFiled===null?ACQ_BASIS.countedZero:ACQ_BASIS.reported;
+    const div=val(map.divestitures||[],end,kind,forms);
+    ytd=(acqFiled??0)-(div??0);
+  }
   r.netAcquisitions = j===0 ? ytd : minus(ytd,prev.__netAcquisitions);
-  r.acquisitionsLineMissing = statement ? (val(map.acquisitions,end,kind,forms)===null?1:0) : null;
+  r.acquisitionsBasis = basis;
   prev.__netAcquisitions=ytd;
 }
 
