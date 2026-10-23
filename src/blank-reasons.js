@@ -64,6 +64,16 @@ export function blankReasons(quarters,context={}){
 
   const ttm=i=>q.slice(i,i+4).reduce((s,r)=>s+(finite(r.dilutedEPS)?r.dilutedEPS:NaN),0);
 
+  const gap=n=>{
+    const rows=q.slice(0,n);
+    for(let i=1;i<rows.length;i++){
+      const a=rows[i-1], b=rows[i];
+      if(a.fiscalYear*4+a.fiscalQuarter!==b.fiscalYear*4+b.fiscalQuarter+1)
+        return `SEC data skips a quarter between ${b.fiscalPeriodEnd} and ${a.fiscalPeriodEnd}.`;
+    }
+    return null;
+  };
+
   // P/E (TTM)
   const peWhy=why('dilutedEPS',4);
   add('P/E Ratio (TTM)',peWhy||(ttm(0)<=0?'Trailing 12-month EPS is zero or negative, so P/E is undefined.':null));
@@ -93,6 +103,18 @@ export function blankReasons(quarters,context={}){
   add('Free Cash Flow (TTM)',fcf(4));
   add('Free Cash Flow (5-Year Avg.)',fcf(20));
 
+  // 5-year Price / FCF: daily price / split-adjusted TTM FCF per share over
+  // the last 20 quarters (24 quarters of FCF per share). Days with zero or
+  // negative trailing FCF are left out; the sheet needs about 1,000 of
+  // ~1,250 trading days, so more than 4 such quarters leaves a dash.
+  const fcfWhy=first(gap(24),fcf(24));
+  const unsplit=q.slice(0,24).filter(r=>finite(r.freeCashFlow)&&!finite(r.fcfPerShare)).length;
+  const ttmFcf=i=>q.slice(i,i+4).reduce((s,r)=>s+(finite(r.fcfPerShare)?r.fcfPerShare:NaN),0);
+  const nonPositive=[...Array(20).keys()].filter(i=>!(ttmFcf(i)>0)).length;
+  add('Price / FCF (5-Year Avg.)',first(fcfWhy,
+    unsplit?`Diluted share counts for ${unsplit} of the last 24 quarters could not be put on today's split basis, so free cash flow per share is unavailable.`:null,
+    nonPositive>4?`Trailing 12-month free cash flow was zero or negative at ${nonPositive} of the last 20 quarter-ends, leaving too few trading days to average.`:null));
+
   // ROIC: operating income, tax and pre-tax income for the window, plus
   // invested capital for one more quarter; the tax rate needs pre-tax > 0.
   const roic=(n,metric)=>{
@@ -112,15 +134,6 @@ export function blankReasons(quarters,context={}){
   // Historical performance: sums over consecutive quarters, as the sheet
   // computes them (growth compares the latest 4 quarters with 4 quarters
   // 1, 5 or 10 years earlier).
-  const gap=n=>{
-    const rows=q.slice(0,n);
-    for(let i=1;i<rows.length;i++){
-      const a=rows[i-1], b=rows[i];
-      if(a.fiscalYear*4+a.fiscalQuarter!==b.fiscalYear*4+b.fiscalQuarter+1)
-        return `SEC data skips a quarter between ${b.fiscalPeriodEnd} and ${a.fiscalPeriodEnd}.`;
-    }
-    return null;
-  };
   for(const [years,n] of [[5,20],[10,40]]){
     add(`Profit Margin (${years} Years)`,first(gap(n),why('revenue',n),why('netIncome',n)));
     add(`Free Cash Flow Margin (${years} Years)`,first(gap(n),why('revenue',n),why('freeCashFlow',n)));
@@ -128,7 +141,7 @@ export function blankReasons(quarters,context={}){
   }
 
   // Cells the sheet does not calculate yet.
-  for(const metric of ['Price / FCF (5-Year Avg.)','Forward Dividend Yield','Net Acquisitions (5-Year Total)'])
+  for(const metric of ['Forward Dividend Yield','Net Acquisitions (5-Year Total)'])
     add(metric,'Not calculated yet: this cell is a placeholder in the sheet.');
 
   return out;

@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import {blankReasons,blankReasonsCsv} from '../src/blank-reasons.js';
 
 const full=(n=48)=>Array.from({length:n},(_,i)=>({fiscalYear:2026-Math.floor(i/4),fiscalQuarter:4-(i%4),
-  fiscalPeriodEnd:`${2026-Math.floor(i/4)}-${String(12-3*(i%4)).padStart(2,'0')}-30`,netIncome:20,freeCashFlow:25,
+  fiscalPeriodEnd:`${2026-Math.floor(i/4)}-${String(12-3*(i%4)).padStart(2,'0')}-30`,netIncome:20,freeCashFlow:25,fcfPerShare:2.5,
   dilutedEPS:2-i*0.02,revenue:100,dilutedShares:10,operatingCashFlow:30,capitalExpenditures:5,
   operatingIncome:25,incomeTaxExpense:5,incomeBeforeTax:24,investedCapital:300,totalDebt:50,cash:20,stockholdersEquity:270}));
 const metrics=r=>r.map(x=>x.metric);
 
-const PLACEHOLDERS=['Price / FCF (5-Year Avg.)','Forward Dividend Yield','Net Acquisitions (5-Year Total)'];
+const PLACEHOLDERS=['Forward Dividend Yield','Net Acquisitions (5-Year Total)'];
 test('a complete, growing company only lacks the forward PEG and placeholder cells',()=>{
   assert.deepEqual(metrics(blankReasons(full(),{companyName:'Example'})),['PEG Ratio (Forward 3 Years)',...PLACEHOLDERS]);
 });
@@ -70,4 +70,18 @@ test('debt reasons say what was filed for the missing date (Palantir vs Adobe)',
 test('PEG wording is about growth, not average P/E',()=>{
   const q=full(); q[22].dilutedEPS=-9;
   assert.match(blankReasons(q,{}).find(x=>x.metric==='PEG Ratio (Past 5 Years)').reason,/growth rate \(and PEG\)/);
+});
+
+test('5-year Price / FCF: computed when inputs exist, explained when not', () => {
+  assert.equal(blankReasons(full(),{}).find(x=>x.metric==='Price / FCF (5-Year Avg.)'),undefined);
+  const unsplit=full(); unsplit[30].fcfPerShare=null; unsplit[3].fcfPerShare=null;
+  assert.match(blankReasons(unsplit,{}).find(x=>x.metric==='Price / FCF (5-Year Avg.)').reason,
+    /share counts for 1 of the last 24 quarters could not be put on today's split basis/);
+  const burn=full(); for(let i=0;i<9;i++) burn[i].fcfPerShare=-3;
+  assert.match(blankReasons(burn,{}).find(x=>x.metric==='Price / FCF (5-Year Avg.)').reason,
+    /zero or negative at \d+ of the last 20 quarter-ends/);
+  const brief=full(); for(let i=0;i<2;i++) brief[i].fcfPerShare=-1;   // a short dip: still averaged
+  assert.equal(blankReasons(brief,{}).find(x=>x.metric==='Price / FCF (5-Year Avg.)'),undefined);
+  const noCapex=full().map(r=>({...r,capitalExpenditures:null}));
+  assert.match(blankReasons(noCapex,{companyName:'X'}).find(x=>x.metric==='Price / FCF (5-Year Avg.)').reason,/Capital expenditures/i);
 });
