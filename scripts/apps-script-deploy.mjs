@@ -11,9 +11,8 @@
  * its "webapp" settings, which publish the refresh web app (doGet in
  * Code.gs). After each upload the web app deployment is pointed at the new
  * code. Its address is never logged: this repository is public, and the
- * address alone lets someone trigger a refresh. It is kept in the sheet's
- * private developer metadata (aaRefreshUrl) instead; the deployment is
- * updated in place, so the address stays the same.
+ * address alone lets someone trigger a refresh. The script stores it in the
+ * sheet's private developer metadata instead.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, existsSync, appendFileSync } from 'node:fs';

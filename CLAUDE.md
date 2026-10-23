@@ -21,10 +21,7 @@ to B2/B6 fires it (`aaTickerEdited`); an edit through the Sheets API (the
 connector) does not. To refresh from a session without the browser, call
 the refresh web app (`doGet`): `<url>?ticker=MSFT` sets B2 and refreshes,
 replying with JSON. Its URL is in the sheet's developer metadata (key
-`aaRefreshUrl`), copied from the deployment "Active Analyzer refresh
-(GitHub)" (stable across deploys); never commit or log it (this repository
-is public). The call's reply is a redirect that WebFetch reports as an
-error even though the refresh ran: confirm through Quarterly Data Y2/Z2.
+`aaRefreshUrl`); never commit or log it (this repository is public).
 GOOGLEFINANCE price history can't be read by any API, so I5/I15 and the
 Historical P/E Data tab still need a screenshot to check.
 

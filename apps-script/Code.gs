@@ -741,18 +741,16 @@ function aaRemoveTickerTriggers_(notify) {
  *   <web app URL>?ticker=MSFT   sets B2 to MSFT, then refreshes
  *   <web app URL>               refreshes the current B2
  * It replies with JSON: {ok, ticker, company, importedAt} or {ok:false, error}.
- * The URL is not published anywhere public. It is kept in the sheet's
- * private developer metadata (key aaRefreshUrl), copied once from the
- * deployment "Active Analyzer refresh (GitHub)" (its address never changes
- * between deploys). The ScriptApp service URL lookup is not used: it returns
- * a different address that does not serve this deployment.
+ * The URL is not published anywhere public; the script stores it in the
+ * sheet's private developer metadata (key aaRefreshUrl).
  */
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
   let result;
   try {
-    const {d,q} = aaSheets_();
+    const {ss,d,q} = aaSheets_();
+    aaPublishRefreshUrl_(ss);
     if (params.ticker) {
       d.getRange(AA.tickerCell).setValue(aaTicker_(params.ticker));
       SpreadsheetApp.flush();
@@ -773,11 +771,30 @@ function doGet(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+/** Keep the web app URL in the sheet's private developer metadata. */
+function aaPublishRefreshUrl_(ss) {
+  try {
+    const url = ScriptApp.getService().getUrl();
+    if (!url) return;
+    ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+    const found = ss.createDeveloperMetadataFinder()
+      .withKey('aaRefreshUrl').find();
+    if (found.length && found[0].getValue()===url) return;
+    found.forEach(m => m.remove());
+    ss.addDeveloperMetadata('aaRefreshUrl', url,
+      SpreadsheetApp.DeveloperMetadataVisibility.DOCUMENT);
+  } catch (err) {
+    console.error('Refresh URL: '+String(err.message||err));
+  }
+}
+
 /* =========================================================
    TICKER CHANGE / B6 CHECKBOX REFRESH HANDLER
    ========================================================= */
 
 function aaTickerEdited(e) {
+  aaPublishRefreshUrl_();
+
   if (
     !e ||
     !e.range ||
