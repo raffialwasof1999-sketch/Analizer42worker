@@ -111,7 +111,7 @@ const AA_METRICS = [
   'Price / FCF (5-Year Avg.)',
   'Dividend Yield (TTM)',
   'Dividends Paid (TTM)',
-  'Dividend Paid Per Share (TTM)',
+  'Dividends Per Share (TTM)',
   'Forward Dividend Yield',
   'ROIC (TTM)',
   'ROIC (5-Year Avg.)',
@@ -255,7 +255,9 @@ function aaCheckDashboard_(d,a,q) {
     .getDisplayValues()
     .map(r => r[0]);
 
-  if (h.some((v,i) => v !== AA_METRICS[i])) {
+  // Accept the previous H18 label while this deployment migrates the sheet.
+  if (h.some((v,i) => v !== AA_METRICS[i] &&
+      !(i === 14 && v === 'Dividend Paid Per Share (TTM)'))) {
     throw Error(
       'Additional metrics labels H4:H22 changed.'
     );
@@ -830,6 +832,20 @@ function aaTickerEdited(e) {
    MAIN SEC FINANCIAL DATA REFRESH
    ========================================================= */
 
+// Migrate the display label and its note heading without touching the
+// dividend amount or formula. Both labels pass validation during rollout.
+function aaMigrateDividendLabel_(dashboard) {
+  const oldLabel = 'Dividend Paid Per Share (TTM)';
+  const newLabel = 'Dividends Per Share (TTM)';
+  const label = dashboard.getRange('H18');
+  if (label.getDisplayValue() === oldLabel) label.setValue(newLabel);
+  const value = dashboard.getRange('I18');
+  const note = value.getNote();
+  if (note && note.startsWith(oldLabel + '\\n')) {
+    value.setNote(newLabel + note.slice(oldLabel.length));
+  }
+}
+
 function refreshStockAnalyzer() {
   const lock =
     LockService.getDocumentLock() ||
@@ -848,6 +864,7 @@ function refreshStockAnalyzer() {
 
     // Validate the layout before changing anything.
     aaCheckDashboard_(d,a,q);
+    aaMigrateDividendLabel_(d);
 
     const original = d
       .getRange(AA.tickerCell)
