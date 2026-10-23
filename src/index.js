@@ -1127,7 +1127,7 @@ async function handleRequest(request) {
       const epsConsistency=enforceQuarterlyEPSConsistency(reportedEPS.rows,finalAnnual);
       const finalQuarterly=epsConsistency.rows;
       // Split-adjusted FCF per diluted share for the sheet's 5-year P/FCF.
-      const fcfShares=fcfPerShare(finalQuarterly,quarters);
+      const fcfShares=fcfPerShare(finalQuarterly);
       finalQuarterly.forEach((row,i)=>{ row.fcfPerShare=fcfShares.values[i]; });
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
       // Script writes only the older 31/26 columns, so basic EPS needs an
