@@ -734,10 +734,67 @@ function aaRemoveTickerTriggers_(notify) {
 }
 
 /* =========================================================
+   REFRESH WEB APP (FOR TOOLS THAT CANNOT TYPE IN THE SHEET)
+   =========================================================
+ * Edits through the Sheets API do not fire onEdit, so tools (the Sheets
+ * connector) start a refresh by calling this web app instead:
+ *   <web app URL>?ticker=MSFT   sets B2 to MSFT, then refreshes
+ *   <web app URL>               refreshes the current B2
+ * It replies with JSON: {ok, ticker, company, importedAt} or {ok:false, error}.
+ * The URL is not published anywhere public; the script stores it in the
+ * sheet's private developer metadata (key aaRefreshUrl).
+ */
+
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  let result;
+  try {
+    const {ss,d,q} = aaSheets_();
+    aaPublishRefreshUrl_(ss);
+    if (params.ticker) {
+      d.getRange(AA.tickerCell).setValue(aaTicker_(params.ticker));
+      SpreadsheetApp.flush();
+    }
+    refreshStockAnalyzer();
+    SpreadsheetApp.flush();
+    result = {
+      ok:true,
+      ticker:q.getRange('Y2').getDisplayValue(),
+      company:d.getRange(AA.companyCell).getDisplayValue(),
+      importedAt:q.getRange('Z2').getDisplayValue()
+    };
+  } catch (err) {
+    result = {ok:false,error:String(err.message||err)};
+  }
+  return ContentService
+    .createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Keep the web app URL in the sheet's private developer metadata. */
+function aaPublishRefreshUrl_(ss) {
+  try {
+    const url = ScriptApp.getService().getUrl();
+    if (!url) return;
+    ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+    const found = ss.createDeveloperMetadataFinder()
+      .withKey('aaRefreshUrl').find();
+    if (found.length && found[0].getValue()===url) return;
+    found.forEach(m => m.remove());
+    ss.addDeveloperMetadata('aaRefreshUrl', url,
+      SpreadsheetApp.DeveloperMetadataVisibility.DOCUMENT);
+  } catch (err) {
+    console.error('Refresh URL: '+String(err.message||err));
+  }
+}
+
+/* =========================================================
    TICKER CHANGE / B6 CHECKBOX REFRESH HANDLER
    ========================================================= */
 
 function aaTickerEdited(e) {
+  aaPublishRefreshUrl_();
+
   if (
     !e ||
     !e.range ||
