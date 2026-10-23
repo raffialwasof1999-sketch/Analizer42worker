@@ -48,7 +48,8 @@ same PR.
 Formulas and notes in Analyzer I/J (except I2's text), B14:D17, H23+,
 rows 29+ (the "NOTES" block, from the worker's `?blankReasons=1`), notes on
 cells not listed above, the Historical P/E Data tab, Financial Data AF+ and
-Quarterly Data AA+ (the basic-EPS `IMPORTDATA` columns).
+Quarterly Data AA+ (`IMPORTDATA` columns: AA basic EPS, AB split-adjusted
+FCF per diluted share).
 
 ## Worker rules (checked by `tests/sheet-compatibility.test.mjs`)
 
@@ -62,7 +63,8 @@ Quarterly Data AA+ (the basic-EPS `IMPORTDATA` columns).
 - A new field reaches the sheet only if it is added to the worker's field
   list, the script's field list and the data tab's header row, in one PR.
 - Extra response fields are ignored by the script and are safe.
-- The three IMPORTDATA feeds (`basicEpsCsv`, `blankReasons`) reuse the
+- The IMPORTDATA feeds (`basicEpsCsv` annual/quarterly, `fcfPerShareCsv`,
+  `blankReasons`) reuse the
   import's calculation for 5 minutes (`routeRequest` in `src/index.js`);
   four separate calculations per refresh exceeded Cloudflare's resource
   limits. Keep feed output derived from the main JSON.
@@ -70,6 +72,11 @@ Quarterly Data AA+ (the basic-EPS `IMPORTDATA` columns).
   (8-K earnings release), falling back to W (10-Q/10-K filing). Heavy
   filers' older quarters get W from Company Facts
   (`fillFilingDatesFromFacts`).
+- Price / FCF (5-Year Avg.) (Analyzer I15): Historical P/E Data P4:P31 =
+  Quarterly Data AB (`fcfPerShare`, oldest first), Q = known TTM, R = TTM
+  known on each trading date, S = daily price / FCF, R2/S2 = average and
+  day count. Same window and checks as the 5-year P/E (I5, columns C/D,
+  K2/L2). The tab has 19 columns (A:S).
 
 ## Checklist for every requested change
 
