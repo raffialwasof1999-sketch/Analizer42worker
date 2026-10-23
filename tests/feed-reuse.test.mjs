@@ -4,7 +4,7 @@ import { routeRequest, resetFeedReuse } from '../src/index.js';
 
 // A fake full calculation that counts how often it runs.
 function counter(body = { success: true, annualFinancials: [{ basicEPS: 7.49 }, { basicEPS: null }],
-  quarterlyFinancials: [{ basicEPS: 1.59, fcfPerShare: 2.1 }, { basicEPS: 2.42, fcfPerShare: null }],
+  quarterlyFinancials: [{ basicEPS: 1.59, fcfPerShare: 2.1, netAcquisitions: 0 }, { basicEPS: 2.42, fcfPerShare: null, netAcquisitions: null }],
   blankReasons: [{ metric: 'PEG Ratio (Forward 3 Years)', reason: 'Needs forecasts.' }] }, status = 200) {
   const calls = [];
   const handler = async request => {
@@ -75,4 +75,14 @@ test('the FCF-per-share feed reuses the import and validates its parameter', asy
   assert.equal(await r.text(), '2.1\nNA\n');
   assert.equal(calls.length, 1);
   assert.equal((await get('ticker=NVDA&fcfPerShareCsv=annual', handler)).status, 400);
+});
+
+test('the combined quarterly feed (Quarterly Data AA:AC) reuses the import, one row per quarter', async () => {
+  resetFeedReuse();
+  const { calls, handler } = counter();
+  await (await get('ticker=AAPL', handler)).text();
+  const r = await get('ticker=AAPL&quarterlyExtrasCsv=1&revision=1', handler);
+  assert.equal(await r.text(), '1.59,2.1,0\n2.42,NA,NA\n');
+  assert.equal(calls.length, 1);
+  assert.equal((await get('ticker=AAPL&quarterlyExtrasCsv=2', handler)).status, 400);
 });

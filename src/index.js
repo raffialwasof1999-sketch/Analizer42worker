@@ -746,13 +746,17 @@ async function historicalSplitFilings(sub,cik,structuredEvidence) {
    concurrent feed requests share one calculation. Feed output is unchanged.
    ========================================================= */
 const FEED_REUSE_MS = 5*60*1000;
-const FEED_PARAMS = new Set(['ticker','basicEpsCsv','fcfPerShareCsv','netAcquisitionsCsv','blankReasons','revision','release','retry']);
+const FEED_PARAMS = new Set(['ticker','basicEpsCsv','fcfPerShareCsv','netAcquisitionsCsv','quarterlyExtrasCsv','blankReasons','revision','release','retry']);
 const recent = new Map(); // ticker -> {at, promise of {status, body}}
 
 // One value per quarterly row, newest first; 'NA' keeps row positions.
 const columnCsv = key => rows => rows.map(r=>n(r[key])!==null?String(r[key]):'NA').join('\n')+'\n';
 const fcfCsv = columnCsv('fcfPerShare');
 const acqCsv = columnCsv('netAcquisitions');
+// One request for Quarterly Data AA:AC (basicEPS, fcfPerShare,
+// netAcquisitions), so a refresh asks the worker for data fewer times.
+const QUARTERLY_EXTRAS = ['basicEPS','fcfPerShare','netAcquisitions'];
+const extrasCsv = rows => rows.map(r=>QUARTERLY_EXTRAS.map(k=>n(r[k])!==null?String(r[k]):'NA').join(',')).join('\n')+'\n';
 
 function csvResponse(text) {
   return new Response(text,{headers:{
@@ -790,13 +794,16 @@ export async function routeRequest(request,handler=handleRequest) {
   const feed=url.searchParams.get('blankReasons')==='1' ? 'reasons'
     : url.searchParams.has('basicEpsCsv') ? 'basic'
     : url.searchParams.has('fcfPerShareCsv') ? 'fcf'
-    : url.searchParams.has('netAcquisitionsCsv') ? 'acq' : null;
+    : url.searchParams.has('netAcquisitionsCsv') ? 'acq'
+    : url.searchParams.has('quarterlyExtrasCsv') ? 'extras' : null;
   if (feed==='basic' && !['annual','quarterly'].includes(url.searchParams.get('basicEpsCsv')))
     return json({success:false,error:'Choose basicEpsCsv=annual or quarterly'},400);
   if (feed==='fcf' && url.searchParams.get('fcfPerShareCsv')!=='quarterly')
     return json({success:false,error:'Use fcfPerShareCsv=quarterly'},400);
   if (feed==='acq' && url.searchParams.get('netAcquisitionsCsv')!=='quarterly')
     return json({success:false,error:'Use netAcquisitionsCsv=quarterly'},400);
+  if (feed==='extras' && url.searchParams.get('quarterlyExtrasCsv')!=='1')
+    return json({success:false,error:'Use quarterlyExtrasCsv=1'},400);
 
   let result;
   if (!feed) {
@@ -815,6 +822,7 @@ export async function routeRequest(request,handler=handleRequest) {
   if (feed==='reasons') return csvResponse(blankReasonsCsv(data.blankReasons||[],ticker));
   if (feed==='fcf') return csvResponse(fcfCsv(data.quarterlyFinancials));
   if (feed==='acq') return csvResponse(acqCsv(data.quarterlyFinancials));
+  if (feed==='extras') return csvResponse(extrasCsv(data.quarterlyFinancials));
   const records=url.searchParams.get('basicEpsCsv')==='annual'?data.annualFinancials:data.quarterlyFinancials;
   return csvResponse(records.map(r=>n(r.basicEPS)!==null?String(r.basicEPS):'NA').join('\n')+'\n');
 }
@@ -1210,6 +1218,11 @@ async function handleRequest(request) {
       if (netAcqCsv !== null) {
         if (netAcqCsv!=='quarterly') return json({success:false,error:'Use netAcquisitionsCsv=quarterly'},400);
         return csvResponse(acqCsv(finalQuarterly));
+      }
+      const extras = url.searchParams.get('quarterlyExtrasCsv');
+      if (extras !== null) {
+        if (extras!=='1') return json({success:false,error:'Use quarterlyExtrasCsv=1'},400);
+        return csvResponse(extrasCsv(finalQuarterly));
       }
       const basicCsv = url.searchParams.get('basicEpsCsv');
       if (basicCsv !== null) {
