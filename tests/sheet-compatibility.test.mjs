@@ -20,7 +20,7 @@ function loadScript() {
   const inert = new Proxy(function () {}, { get: () => inert, apply: () => inert });
   const context = vm.createContext({ SpreadsheetApp: inert, UrlFetchApp: inert, ScriptApp: inert,
     PropertiesService: inert, LockService: inert, Utilities: inert, Logger: inert, console });
-  vm.runInContext(scriptSource + '\n;globalThis.__aa={AA,AA_ANNUAL_FIELDS,AA_QUARTER_FIELDS,aaValidatePayload_,aaStatusFormula_};', context);
+  vm.runInContext(scriptSource + '\n;globalThis.__aa={AA,AA_ANNUAL_FIELDS,AA_QUARTER_FIELDS,aaValidatePayload_,aaStatusFormula_,aaPollDecision_};', context);
   return context.__aa;
 }
 const gs = loadScript();
@@ -132,4 +132,18 @@ test('the combined quarterly feed equals the three separate feeds, column by col
 test('the metric names in column H are free to rename (no layout check on them)', () => {
   assert.ok(!scriptSource.includes("getRange('H4:H22')"));
   assert.ok(!/AA_METRICS/.test(scriptSource));
+});
+
+test('the once-a-minute check refreshes after API edits, and backs off a failing ticker', () => {
+  const d = gs.aaPollDecision_, now = 1e12;
+  assert.equal(d('AAPL', 'AAPL', false, null, now), null);           // up to date
+  assert.equal(d('msft', 'AAPL', false, null, now), 'ticker');       // B2 changed via the API
+  assert.equal(d('AAPL', 'AAPL', true, null, now), 'checkbox');      // B6 ticked via the API
+  assert.equal(d('AAPL', '', false, null, now), 'ticker');           // nothing imported yet
+  assert.equal(d('', 'AAPL', false, null, now), null);               // empty or invalid B2
+  assert.equal(d('BAD!', 'AAPL', false, null, now), null);
+  const failed = { ticker: 'ZZZZ', at: now - 5 * 60000 };
+  assert.equal(d('ZZZZ', 'AAPL', false, failed, now), null);         // failed 5 minutes ago: wait
+  assert.equal(d('ZZZZ', 'AAPL', false, failed, now + 30 * 60000), 'ticker'); // retry after 30
+  assert.equal(d('MSFT', 'AAPL', false, failed, now), 'ticker');     // a different ticker: go
 });

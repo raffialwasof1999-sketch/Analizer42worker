@@ -16,7 +16,12 @@ owner to merge, give the full PR link.
 
 ## What every refresh (and ticker change) overwrites
 
-Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`.
+Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`. A typed edit
+to B2/B6 refreshes at once (`aaTickerEdited`); an edit through the Sheets
+API (the connector) does not fire onEdit, so `aaPollRefresh` checks once a
+minute and refreshes when B2 differs from Quarterly Data Y2 or B6 is ticked
+(a failed ticker is retried after 30 minutes). To refresh from this
+session: write B2 (or tick B6) with the connector and wait about a minute.
 
 - **Financial Data** columns A:AE, rows 2+ (`AA_ANNUAL_FIELDS`), and
   **Quarterly Data** columns A:Y, rows 2+ (`AA_QUARTER_FIELDS`), plus Z1/Z2

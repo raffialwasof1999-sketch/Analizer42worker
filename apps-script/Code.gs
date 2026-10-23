@@ -42,7 +42,12 @@ const AA = Object.freeze({
   companyCell:'B4',
   exchangeCell:'E2',
   refreshCheckbox:'B6',
-  triggerHandler:'aaTickerEdited'
+  triggerHandler:'aaTickerEdited',
+  // Edits made through the Sheets API (connectors, other tools) do not fire
+  // onEdit, so a once-a-minute check starts the same refresh for them.
+  pollHandler:'aaPollRefresh',
+  pollMinutes:1,
+  pollRetryMinutes:30
 });
 
 const AA_ANNUAL_FIELDS = [
@@ -699,6 +704,8 @@ function installTickerRefresh() {
     .onEdit()
     .create();
 
+  aaEnsurePoller_();
+
   ss.toast(
     'Ticker B2 and refresh checkbox B6 are active.',
     'Stock Analyzer',
@@ -713,6 +720,7 @@ function removeTickerRefresh() {
 function aaRemoveTickerTriggers_(notify) {
   const known = new Set([
     AA.triggerHandler,
+    AA.pollHandler,
     'stockAnalyzerTickerEdited',
     'tickerEdited',
     'onTickerEdit'
@@ -734,10 +742,78 @@ function aaRemoveTickerTriggers_(notify) {
 }
 
 /* =========================================================
+   REFRESH FOR API EDITS (ONCE-A-MINUTE CHECK)
+   ========================================================= */
+
+function aaEnsurePoller_() {
+  const exists = ScriptApp.getProjectTriggers()
+    .some(t => t.getHandlerFunction()===AA.pollHandler);
+  if (exists) return false;
+  ScriptApp.newTrigger(AA.pollHandler)
+    .timeBased()
+    .everyMinutes(AA.pollMinutes)
+    .create();
+  return true;
+}
+
+/**
+ * What the once-a-minute check should do: 'checkbox' when B6 is ticked,
+ * 'ticker' when B2 differs from the imported ticker (Quarterly Data Y2),
+ * otherwise null. A ticker whose refresh failed is retried only after
+ * AA.pollRetryMinutes, so a bad ticker is not fetched every minute.
+ */
+function aaPollDecision_(b2,y2,b6,failed,nowMs) {
+  if (b6===true) return 'checkbox';
+  let ticker;
+  try { ticker = aaTicker_(b2); } catch (err) { return null; }
+  let imported = '';
+  try { imported = aaTicker_(y2); } catch (err) { imported = ''; }
+  if (ticker===imported) return null;
+  if (failed && failed.ticker===ticker &&
+      nowMs-failed.at < AA.pollRetryMinutes*60000) return null;
+  return 'ticker';
+}
+
+function aaPollRefresh() {
+  const {d,q} = aaSheets_();
+  const b2 = d.getRange(AA.tickerCell).getDisplayValue();
+  const b6 = d.getRange(AA.refreshCheckbox).getValue();
+  const y2 = q.getRange('Y2').getDisplayValue();
+  const props = PropertiesService.getDocumentProperties();
+  let failed = null;
+  try { failed = JSON.parse(props.getProperty('aaPollFailed')||'null'); } catch (err) {}
+
+  const action = aaPollDecision_(b2,y2,b6,failed,Date.now());
+  if (!action) return;
+
+  // Skip quietly while an edit-triggered refresh is running.
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(100)) return;
+  lock.releaseLock();
+
+  try {
+    refreshStockAnalyzer();
+    props.deleteProperty('aaPollFailed');
+  } catch (err) {
+    console.error('Scheduled refresh failed: '+String(err.message||err));
+    if (action==='ticker') {
+      props.setProperty('aaPollFailed',
+        JSON.stringify({ticker:aaTicker_(b2),at:Date.now()}));
+    }
+  } finally {
+    if (action==='checkbox') d.getRange(AA.refreshCheckbox).setValue(false);
+  }
+}
+
+/* =========================================================
    TICKER CHANGE / B6 CHECKBOX REFRESH HANDLER
    ========================================================= */
 
 function aaTickerEdited(e) {
+  // Runs with the owner's authorization, so it can install the
+  // once-a-minute check the first time a ticker is edited after deploy.
+  try { aaEnsurePoller_(); } catch (err) { console.error('Poller: '+err); }
+
   if (
     !e ||
     !e.range ||
