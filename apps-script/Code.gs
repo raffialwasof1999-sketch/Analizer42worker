@@ -841,7 +841,7 @@ function aaMigrateDividendLabel_(dashboard) {
   if (label.getDisplayValue() === oldLabel) label.setValue(newLabel);
   const value = dashboard.getRange('I18');
   const note = value.getNote();
-  if (note && note.startsWith(oldLabel + '\\n')) {
+  if (note && note.startsWith(oldLabel + '\n')) {
     value.setNote(newLabel + note.slice(oldLabel.length));
   }
 }
