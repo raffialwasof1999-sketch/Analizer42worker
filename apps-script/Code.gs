@@ -91,14 +91,13 @@ const AA_LABELS = {
   F4:'Latest Free Cash Flow (TTM)',
   F5:'Latest Share Count',
   F6:'Latest Diluted Share Count',
-  F7:'Latest Reported Quarter and Year',
-  H2:'Metric',
-  J2:'Google Finance Numbers'
+  F7:'Latest Reported Quarter and Year'
 };
 
-// The metric names in H4:H23 are not checked: refreshes never write to
-// columns H or I, so the names (and their order, moved together with their
-// column I formulas) are free to change in the sheet.
+// The metrics table (H2:J23: headings, metric names and their formulas) is
+// not checked: refreshes never write to columns H, I or J, so its headings
+// and names are free to change in the sheet (move a metric by moving its
+// H and I cells together).
 
 /* =========================================================
    SPREADSHEET MENU
@@ -201,15 +200,6 @@ function aaCheckDashboard_(d,a,q) {
     throw Error(
       'Refresh checkbox missing at Analyzer!B6.'
     );
-  }
-
-  const i2 = d.getRange('I2')
-    .getDisplayValue()
-    .replace(/\s+/g,' ')
-    .trim();
-
-  if (i2 !== 'Calculated from our imported data') {
-    throw Error('Dashboard I2 header moved.');
   }
 
   const headings = d
