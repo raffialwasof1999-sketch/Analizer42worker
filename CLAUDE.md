@@ -34,8 +34,9 @@ change the script instead (and the sheet, for an immediate effect).
 
 - Labels in `AA_LABELS` (A2:A23, C2:C5, F2:F7, H2, J2), I2's text, E24:G24
   `Low|Mid|High`, B13:D13 `1 Year|5 Years|10 Years`.
-- **H4:H22 must equal `AA_METRICS` exactly**: no renaming, reordering or
-  inserting rows inside it. B6 must stay a checkbox.
+- B6 must stay a checkbox. (The metric names in H4:H23 are not checked:
+  rename them in the sheet freely; to reorder, cut and paste each H cell
+  together with its I cell, never copy, and never insert whole rows.)
 - A25:A28 label wording; E25:G28 formulas must keep referencing their
   inputs (E15/E16/E18/E20, $G$2, $G$6, $B$3, $E$3, $I$16...).
 - Data-tab header rows must match the field lists; Quarterly Data Z1 is

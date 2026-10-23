@@ -96,27 +96,9 @@ const AA_LABELS = {
   J2:'Google Finance Numbers'
 };
 
-const AA_METRICS = [
-  'P/E Ratio (TTM)',
-  'P/E Ratio (5-Year Avg.)',
-  'P/S Ratio (TTM)',
-  'PEG Ratio (Past 5 Years)',
-  'PEG Ratio (Forward 3 Years)',
-  'Profit Margin (TTM)',
-  'Profit Margin (5-Year Avg.)',
-  'Profit Margin (10-Year Avg.)',
-  'Free Cash Flow (TTM)',
-  'Free Cash Flow (5-Year Avg.)',
-  'Price / FCF (TTM)',
-  'Price / FCF (5-Year Avg.)',
-  'Dividend Yield (TTM)',
-  'Dividends Paid (TTM)',
-  'Dividend Paid Per Share (TTM)',
-  'Forward Dividend Yield',
-  'ROIC (TTM)',
-  'ROIC (5-Year Avg.)',
-  'Net Acquisitions (5-Year Total)'
-];
+// The metric names in H4:H23 are not checked: refreshes never write to
+// columns H or I, so the names (and their order, moved together with their
+// column I formulas) are free to change in the sheet.
 
 /* =========================================================
    SPREADSHEET MENU
@@ -247,17 +229,6 @@ function aaCheckDashboard_(d,a,q) {
   if (historical.join('|') !== '1 Year|5 Years|10 Years') {
     throw Error(
       'Historical headings B13:D13 changed.'
-    );
-  }
-
-  const h = d
-    .getRange('H4:H22')
-    .getDisplayValues()
-    .map(r => r[0]);
-
-  if (h.some((v,i) => v !== AA_METRICS[i])) {
-    throw Error(
-      'Additional metrics labels H4:H22 changed.'
     );
   }
 
