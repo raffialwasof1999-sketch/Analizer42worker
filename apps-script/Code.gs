@@ -605,7 +605,7 @@ function aaAnnualNotes_(p,context) {
     F3: 'LATEST NET INCOME (LATEST FISCAL YEAR for this company)\nG3 = net income attributable to shareholders for '+fy+', '+usd+'.\n'+context,
     F4: 'LATEST FREE CASH FLOW (LATEST FISCAL YEAR for this company)\nG4 = operating cash flow minus capital expenditures for '+fy+', '+usd+'.\n'+context,
     C5: 'ENTERPRISE VALUE\nE5 = market value (price E3 x diluted shares G6, "Annual View"!B19; Google\'s market cap is wrong for some ADRs) + (total debt - cash) at the end of '+fy+', '+usd+'.\n'+context,
-    F5: 'LATEST COMMON SHARES OUTSTANDING\nNot available for annual-only companies (no 10-Q cover page), so G5 shows a dash. G6 has the diluted count.\n'+context,
+    F5: 'LATEST COMMON SHARES OUTSTANDING (ADR EQUIVALENTS)\nG5 = ordinary shares outstanding on the cover page of the latest annual report (Quarterly Data!Z8, as of Z10) divided by the ordinary shares per ADR ("Annual View"!B9). This is NOT the diluted count (G6).\n'+context,
     F6: 'LATEST DILUTED SHARE COUNT (ADR EQUIVALENTS)\nG6 = weighted diluted ordinary shares of '+fy+' divided by the ordinary shares per ADR ("Annual View"!B9: from the ADR table at "Annual View"!A43, else inferred from Google\'s market cap when within 5% of a clean ratio), so per-share results match the US-listed price. P/E, P/S, P/FCF and yields use price x this count.\n'+context,
     F7: 'LATEST REPORTED FISCAL YEAR\nG7 shows the latest fiscal year in SEC data and its year end. If it ended more than 500 days ago, valuations show a dash ("too old for valuations").\n'+context
   };
@@ -901,9 +901,10 @@ function refreshStockAnalyzer() {
     const previousZ2 = q
       .getRange('Z2').getValue();
 
-    // Z3:Z6 = reportingCurrency / dataBasis labels and values.
+    // Z3:Z10 = reportingCurrency / dataBasis / sharesOutstanding /
+    // sharesOutstandingAsOf labels and values.
     const previousBasis = q
-      .getRange('Z3:Z6').getValues();
+      .getRange('Z3:Z10').getValues();
 
     const previousName = d
       .getRange(AA.companyCell).getValue();
@@ -951,9 +952,17 @@ function refreshStockAnalyzer() {
         q.getRange('Y2').setValue(ticker);
       }
 
-      q.getRange('Z3:Z6').setValues([
+      // Annual-only companies: cover-page shares outstanding (ordinary
+      // shares) of the latest annual report, for Analyzer G5.
+      const shares = verified.annualOnly && Number.isFinite(p.sharesOutstanding) &&
+        p.sharesOutstanding>0 ? p.sharesOutstanding : '';
+      const sharesAsOf = shares!=='' && aaIso_(p.sharesOutstandingAsOf) ?
+        p.sharesOutstandingAsOf : '';
+      q.getRange('Z3:Z10').setValues([
         ['reportingCurrency'],[verified.currency],
-        ['dataBasis'],[verified.annualOnly?'annual':'quarterly']
+        ['dataBasis'],[verified.annualOnly?'annual':'quarterly'],
+        ['sharesOutstanding'],[shares],
+        ['sharesOutstandingAsOf'],[sharesAsOf]
       ]);
 
       q.getRange('Z1').setValue('lastImportedAt');
@@ -1014,7 +1023,7 @@ function refreshStockAnalyzer() {
           q.getRange('Z2')
             .setValue(previousZ2);
 
-          q.getRange('Z3:Z6')
+          q.getRange('Z3:Z10')
             .setValues(previousBasis);
 
           d.getRange(AA.companyCell)

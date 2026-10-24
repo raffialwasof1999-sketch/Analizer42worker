@@ -144,3 +144,42 @@ test('full-year figures filed in a 6-K annual report count (Novo Nordisk 2015-20
   assert.deepEqual(d.annualFinancials.map(r=>r.fiscalYear),[2020,2019,2018,2017]);
   assert.equal(d.annualFinancials[2].revenue,112e9);
 });
+
+test('TSMC-style debt: noncurrent bonds + bank loans + the larger current line (real FY2024 values)', async () => {
+  const { composedIfrsDebt } = await import('../src/foreign-annual.js');
+  const i=(end,val,filed='2025-04-17')=>({end,val,form:'20-F',accn:'a-'+filed,filed});
+  const bucket={
+    NoncurrentPortionOfNoncurrentBondsIssued:{units:{TWD:[i('2024-12-31',926604500000),i('2023-12-31',913899800000,'2024-04-18')]}},
+    LongtermBorrowings:{units:{TWD:[i('2024-12-31',31824400000),i('2023-12-31',4383000000,'2024-04-18')]}},
+    CurrentPortionOfLongtermBorrowings:{units:{TWD:[i('2024-12-31',59857900000)]}},
+    CurrentBondsIssuedAndCurrentPortionOfNoncurrentBondsIssued:{units:{TWD:[i('2024-12-31',57148000000),i('2023-12-31',6997700000,'2024-04-18')]}}
+  };
+  const d=Object.fromEntries(composedIfrsDebt(bucket,'TWD').map(f=>[f.end,f.val]));
+  assert.equal(d['2024-12-31'],926604500000+31824400000+59857900000);   // current portion includes current bonds
+  assert.equal(d['2023-12-31'],913899800000+4383000000+6997700000);
+  assert.deepEqual(composedIfrsDebt({},'TWD'),[]);
+});
+
+test('cover-page shares outstanding sum share classes of the latest annual report', async () => {
+  const { coverSharesOutstanding } = await import('../src/foreign-annual.js');
+  const f=(val,frame,accn='n-2026',filed='2026-02-04',end='2026-01-30')=>({val,frame,accn,filed,end,form:'20-F'});
+  const facts={facts:{dei:{EntityCommonStockSharesOutstanding:{units:{shares:[
+    f(1075000000,'A'),f(3370000000,'B'),f(4500000000,'X','n-2025','2025-02-05','2025-01-31')]}}}}};
+  assert.deepEqual(coverSharesOutstanding(facts),{value:4445000000,asOf:'2026-01-30'});
+  assert.deepEqual(coverSharesOutstanding({facts:{}}),{value:null,asOf:null});
+});
+
+test('ASML-style dividends: PaymentsOfOrdinaryDividends, and dividend per share from dividends paid', async () => {
+  const gaap={
+    RevenueFromContractWithCustomerExcludingAssessedTax:unit('EUR',report(2025,[32.7e9,28.3e9])),
+    NetIncomeLoss:unit('EUR',report(2025,[9.6e9,7.6e9])),
+    PaymentsOfOrdinaryDividends:unit('EUR',report(2025,[2.5503e9,2.4529e9])),
+    WeightedAverageNumberOfDilutedSharesOutstanding:unit('shares',report(2025,[388.9e6,393.6e6])),
+    CommonStockDividendsPerShareDeclared:unit('EUR/shares',[f(2024,6.4,'0000000000-2026-2025','2026-03-01')])
+  };
+  const d=await (await run({'us-gaap':gaap})).json();
+  assert.equal(d.annualFinancials[0].dividendsPaid,2.5503e9);
+  assert.equal(d.annualFinancials[0].dividendsPerShare,2.5503e9/388.9e6);   // derived
+  assert.equal(d.annualFinancials[1].dividendsPerShare,6.4);                 // reported wins
+  assert.deepEqual(d.dividendsPerShareFromPaid,[2025]);
+});

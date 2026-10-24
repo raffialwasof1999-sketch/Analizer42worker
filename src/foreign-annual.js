@@ -160,3 +160,63 @@ export function reportBasis(epsFacts,shareFacts) {
   });
   return basis;
 }
+
+// Latest-filed value of each instant fact, by period end (annual-report forms).
+function latestInstantByEnd(list) {
+  const out=new Map();
+  for (const f of list||[]) {
+    if (f.start || typeof f.val!=='number' || !Number.isFinite(f.val) || !FOREIGN_ANNUAL_FORMS.includes(f.form)) continue;
+    const cur=out.get(f.end);
+    if (!cur || String(f.filed||'')>String(cur.filed||'')) out.set(f.end,f);
+  }
+  return out;
+}
+
+/**
+ * Total borrowings for IFRS filers that list bonds and bank loans on
+ * separate lines and file no "Borrowings" total (TSMC):
+ *   current  = CurrentPortionOfLongtermBorrowings or current bonds,
+ *              whichever is larger (TSMC's current-portion line already
+ *              includes its current bonds), plus short-term borrowings;
+ *   noncurrent = noncurrent bonds + long-term bank loans.
+ * A period needs noncurrent bonds or loans; an absent current or
+ * short-term line counts as 0 there (such lines are omitted when empty).
+ * @returns synthetic instant facts for index.js's totalDebt key
+ */
+export function composedIfrsDebt(bucket,currency) {
+  const get=tag=>latestInstantByEnd(bucket?.[tag]?.units?.[currency]);
+  const bonds=get('NoncurrentPortionOfNoncurrentBondsIssued');
+  const loans=get('LongtermBorrowings');
+  const loansAlt=get('NoncurrentPortionOfNoncurrentLoansReceived');
+  const curLong=get('CurrentPortionOfLongtermBorrowings');
+  const curBonds=get('CurrentBondsIssuedAndCurrentPortionOfNoncurrentBondsIssued');
+  const shortTerm=get('ShorttermBorrowings');
+  const ends=new Set([...bonds.keys(),...loans.keys(),...loansAlt.keys()]);
+  const v=(m,e)=>m.get(e)?.val ?? null;
+  const out=[];
+  for (const end of ends) {
+    const nonBonds=v(bonds,end), nonLoans=v(loans,end)??v(loansAlt,end);
+    if (nonBonds===null && nonLoans===null) continue;
+    const current=Math.max(v(curLong,end)??0, v(curBonds,end)??0);
+    const src=bonds.get(end)||loans.get(end)||loansAlt.get(end);
+    out.push({end,val:(nonBonds??0)+(nonLoans??0)+current+(v(shortTerm,end)??0),
+      form:src.form,filed:src.filed,accn:src.accn,tag:'composedIfrsDebt'});
+  }
+  return out;
+}
+
+/**
+ * Shares outstanding from the latest annual report's cover page (dei),
+ * summing share classes reported for the same date (Novo Nordisk A + B).
+ * @returns {value, asOf} or nulls
+ */
+export function coverSharesOutstanding(facts) {
+  const list=(facts?.facts?.dei?.EntityCommonStockSharesOutstanding?.units?.shares||[])
+    .filter(f=>/^(20|40)-F/.test(f.form||'') && Number.isFinite(f.val) && f.val>0);
+  if (!list.length) return {value:null,asOf:null};
+  const latest=list.reduce((a,b)=>String(b.filed||'')>String(a.filed||'')||
+    (b.filed===a.filed && b.end>a.end)?b:a);
+  const same=list.filter(f=>f.accn===latest.accn && f.end===latest.end);
+  const unique=[...new Map(same.map(f=>[f.val+'|'+(f.frame||''),f])).values()];
+  return {value:unique.reduce((s,f)=>s+f.val,0),asOf:latest.end};
+}
