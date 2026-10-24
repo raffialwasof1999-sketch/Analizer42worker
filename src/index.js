@@ -13,6 +13,7 @@ import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
 import { withPredecessor } from './sec-predecessor.js';
 import { blankReasons, blankReasonsCsv } from './blank-reasons.js';
 import { fcfPerShare } from './fcf-per-share.js';
+import { normalizeDividendsPerShare } from './dividend-split-basis.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage, fillFilingDatesFromFacts } from './sec-earnings-dates.js';
 
@@ -1185,6 +1186,9 @@ async function handleRequest(request) {
       // Split-adjusted FCF per diluted share for the sheet's 5-year P/FCF.
       const fcfShares=fcfPerShare(finalQuarterly);
       finalQuarterly.forEach((row,i)=>{ row.fcfPerShare=fcfShares.values[i]; });
+      // Dividends per share on today's split basis (proven splits only).
+      const dps=normalizeDividendsPerShare(finalQuarterly,fcfShares.factors);
+      finalQuarterly.forEach((row,i)=>{ row.dividendsPerShare=dps.values[i]; });
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
       // Script writes only the older 31/26 columns, so basic EPS needs an
       // independent column feed. 'NA' preserves row positions in sparse data.
