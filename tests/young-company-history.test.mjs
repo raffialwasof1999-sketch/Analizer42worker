@@ -50,3 +50,23 @@ test('a young company keeps its pre-IPO comparative quarters (The Trade Desk Q3-
   assert.equal(q['2017Q1'].revenue,49090000);               // SalesRevenueServicesNet
   assert.equal(q['2015Q3'].netAcquisitions,null);
 });
+
+test('a partial year whose known quarters are not its last ones is left out (no relabelling)', async () => {
+  // Only Q1 and Q2 2015 known: they must not become "Q2/Q3".
+  const early=ni.filter(f=>!f.end.startsWith('2015-09'))
+    .concat([F('2015-01-01','2015-03-31',2000000,'10-Q','2016-05-10'),F('2015-04-01','2015-06-30',3000000,'10-Q','2016-08-10'),F('2015-01-01','2015-06-30',5000000,'10-Q','2016-08-10')]);
+  const f2={...facts,facts:{'us-gaap':{NetIncomeLoss:{units:{USD:early}},SalesRevenueServicesNet:{units:{USD:early.map(f=>({...f,val:f.val*10}))}}}}};
+  const original=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    url=String(url);
+    if(url.includes('company_tickers.json'))return Response.json({'0':{ticker:'TTD',cik_str:1,title:'TTD'}});
+    if(url.includes('/companyfacts/'))return Response.json(f2);
+    if(url.includes('/submissions/'))return Response.json(sub);
+    throw Error('Unexpected '+url);
+  };
+  let d;
+  try { d=await (await worker.fetch(new Request('https://example.test/?ticker=TTD'))).json(); }
+  finally { globalThis.fetch=original; }
+  assert.equal(d.success,true);
+  assert.ok(!d.quarterlyFinancials.some(r=>r.fiscalYear===2015));
+});

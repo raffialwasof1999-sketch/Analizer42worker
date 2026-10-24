@@ -509,7 +509,11 @@ function buildQuarterly(map,ends,cik=null) {
       .filter(d=>d<ends[at+1] && (lower===null || d>lower) &&
         dayCount(d,ends[at+1])<=280)
       .slice(-3);
-    if (qs.length>=1 && qs.length<3) {
+    // They must be the year's last quarters, consecutive (Q2-Q3 or Q3),
+    // judged by distance from the year end, never e.g. Q1-Q2 relabelled.
+    const steps = qs.map(d=>Math.round(dayCount(d,ends[at+1])/91.3));
+    const lastQuarters = steps.every((k,i)=>k===qs.length-i);
+    if (qs.length>=1 && qs.length<3 && lastQuarters) {
       groups.push({
         ends:[...qs,ends[at+1]],
         year:fiscalYearOf(ends[at+1]),
