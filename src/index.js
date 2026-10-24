@@ -67,7 +67,9 @@ export const TAGS = {
     'RevenuesNetOfInterestExpense',
     'RevenueFromContractWithCustomerExcludingAssessedTax',
     'RevenueFromContractWithCustomerIncludingAssessedTax',
-    'Revenues','SalesRevenueNet','SalesRevenueGoodsNet'
+    'Revenues','SalesRevenueNet','SalesRevenueGoodsNet',
+    // Pre-2018 services companies (The Trade Desk before ASC 606).
+    'SalesRevenueServicesNet'
   ],
   netIncome: [
     'NetIncomeLoss','ProfitLoss','NetIncomeLossAttributableToParent'
@@ -493,6 +495,29 @@ function buildQuarterly(map,ends,cik=null) {
     }
   }
 
+  // The fiscal year just before the oldest complete one: a young company's
+  // first 10-Qs show only the latest quarters of its pre-IPO year as
+  // comparatives (The Trade Desk: Q3 2015 in its Q3 2016 10-Q). Those
+  // quarters and the derived Q4 (annual minus nine-month YTD) extend the
+  // history; earlier quarters stay absent. Only reported three-month
+  // figures are used for the first quarter of such a partial year.
+  const oldest = groups.filter(g=>g.ends.length===4).at(-1);
+  const at = oldest ? ends.indexOf(oldest.ends[3]) : -1;
+  if (at>=0 && at+1<ends.length && at<15) {
+    const lower = ends[at+2] ?? null;
+    const qs = qEnds
+      .filter(d=>d<ends[at+1] && (lower===null || d>lower) &&
+        dayCount(d,ends[at+1])<=280)
+      .slice(-3);
+    if (qs.length>=1 && qs.length<3) {
+      groups.push({
+        ends:[...qs,ends[at+1]],
+        year:fiscalYearOf(ends[at+1]),
+        firstQuarter:4-qs.length
+      });
+    }
+  }
+
   const rows = [];
   const flowing = Object.keys(TAGS).filter(k=>!INSTANT.has(k));
 
@@ -501,12 +526,13 @@ function buildQuarterly(map,ends,cik=null) {
 
     for (let j=0;j<group.ends.length;j++) {
       const end = group.ends[j];
-      const isQ4 = j===3;
+      const isQ4 = j===group.ends.length-1 && group.ends.length===4 ||
+        (group.firstQuarter && j===group.ends.length-1);
       const forms = isQ4 ? formsY : formsQ;
 
       const r = {
         fiscalYear:group.year,
-        fiscalQuarter:j+1,
+        fiscalQuarter:(group.firstQuarter||1)+j,
         fiscalPeriodEnd:end
       };
 
@@ -523,7 +549,9 @@ function buildQuarterly(map,ends,cik=null) {
         } else if (n(direct)!==null) {
           amount = direct;
         } else if (j===0) {
-          amount = ytd;
+          // A partial year's first quarter is not Q1: its YTD spans
+          // earlier quarters, so only a reported three-month figure counts.
+          amount = group.firstQuarter ? null : ytd;
         } else {
           amount = minus(ytd,previousYtd[key]);
         }
@@ -549,6 +577,8 @@ function buildQuarterly(map,ends,cik=null) {
       }
       decorate(r,null,isBank(map));
       netAcquisitionsQuarter(r,map,end,isQ4,forms,previousYtd,j);
+      // A partial year's first quarter has only a multi-quarter YTD.
+      if (group.firstQuarter && j===0) r.netAcquisitions=null;
       rows.push(r);
     }
   }
