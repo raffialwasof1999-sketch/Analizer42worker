@@ -157,6 +157,7 @@ test('a foreign filer gets a plain reason, and the script shows a failed import 
   const asml = { filings: { recent: { form: ['S-8 POS', '6-K', '6-K', 'SD', '20-F', '6-K'] } } };
   assert.match(foreignFilerReason(asml, 'ASML Holding NV'), /^ASML Holding NV files with the SEC as a foreign company \(annual 20-F reports/);
   assert.equal(foreignFilerReason({ filings: { recent: { form: ['10-Q', '8-K', '10-K'] } } }, 'X'), null);
+  assert.match(foreignFilerReason({ filings: { recent: { form: ['6-K', '20-F'] } } }, 'Novo Nordisk', 'IFRS'), /annual 20-F reports under IFRS accounting, quarterly/);
   assert.equal(foreignFilerReason({ filings: { recent: { form: ['40-F', '10-K'] } } }, 'X'), null);   // files 10-Ks too
   assert.match(scriptSource, /aaShowFailedImport_\(ss,String\(err\.message\|\|err\)\)/);
   assert.match(scriptSource, /SEC IMPORT FAILED for/);

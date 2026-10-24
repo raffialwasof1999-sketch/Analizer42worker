@@ -637,12 +637,13 @@ function outputRows(rows,fields) {
  * 20-F or 40-F, quarterly results as 6-K press releases, which SEC's
  * structured data does not include) instead of 10-K/10-Q. Null otherwise.
  */
-export function foreignFilerReason(sub,name) {
+export function foreignFilerReason(sub,name,standard=null) {
   const forms=(sub?.filings?.recent?.form)||[];
   if (forms.some(f=>/^10-[KQ]/.test(f))) return null;
   const annual=forms.find(f=>/^(20|40)-F/.test(f));
   if (!annual) return null;
-  return `${name} files with the SEC as a foreign company (annual ${annual.replace('/A','')} reports, `+
+  return `${name} files with the SEC as a foreign company (annual ${annual.replace('/A','')} reports`+
+    (standard ? ` under ${standard} accounting` : '')+`, `+
     `quarterly results only as 6-K press releases that SEC's data feed does not include), `+
     `so the SEC-based figures in column I can't be calculated for it yet. `+
     `Columns J-L still show outside data.`;
@@ -964,6 +965,8 @@ async function handleRequest(request) {
 
       if (!gaap) {
         throw Error(
+          foreignFilerReason(sub, facts.entityName||company.title||ticker,
+            facts.facts?.['ifrs-full'] ? 'IFRS' : null) ||
           'No SEC us-gaap Company Facts; issuer not supported.'
         );
       }
