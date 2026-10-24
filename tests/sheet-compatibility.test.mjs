@@ -199,3 +199,10 @@ test('an annual-only foreign company passes the refresh validation; the script r
   assert.ok(f.includes('Foreign filer: annual reports only, figures in '));
   for (const s of ['Last imported quarter: Q', 'SEC imported ']) assert.ok(f.includes(s), s);
 });
+
+test('annual-only companies get notes that describe the Annual View formulas', () => {
+  assert.match(scriptSource, /if \(annualOnly\) Object\.assign\(notes, aaAnnualNotes_\(p,context\)\);/);
+  const body = scriptSource.slice(scriptSource.indexOf('function aaAnnualNotes_'), scriptSource.indexOf('WRITE SEC FINANCIAL DATA'));
+  for (const cell of ['F2','F3','F4','C5','F5','F6','F7']) assert.ok(body.includes(cell + ':'), cell);
+  assert.ok(body.includes('"Annual View"!B9'));
+});
