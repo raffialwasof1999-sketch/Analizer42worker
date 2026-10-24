@@ -604,9 +604,9 @@ function aaAnnualNotes_(p,context) {
     F2: 'LATEST REVENUE (LATEST FISCAL YEAR for this company)\nG2 = revenue of '+fy+', '+usd+'. This company reports annually, so there is no trailing-twelve-month figure.\n'+context,
     F3: 'LATEST NET INCOME (LATEST FISCAL YEAR for this company)\nG3 = net income attributable to shareholders for '+fy+', '+usd+'.\n'+context,
     F4: 'LATEST FREE CASH FLOW (LATEST FISCAL YEAR for this company)\nG4 = operating cash flow minus capital expenditures for '+fy+', '+usd+'.\n'+context,
-    C5: 'ENTERPRISE VALUE\nE5 = Google Finance market cap E4 + (total debt - cash) at the end of '+fy+', '+usd+'.\n'+context,
+    C5: 'ENTERPRISE VALUE\nE5 = market value (price E3 x diluted shares G6, "Annual View"!B19; Google\'s market cap is wrong for some ADRs) + (total debt - cash) at the end of '+fy+', '+usd+'.\n'+context,
     F5: 'LATEST COMMON SHARES OUTSTANDING\nNot available for annual-only companies (no 10-Q cover page), so G5 shows a dash. G6 has the diluted count.\n'+context,
-    F6: 'LATEST DILUTED SHARE COUNT (ADR EQUIVALENTS)\nG6 = weighted diluted ordinary shares of '+fy+' divided by the ordinary shares per ADR ("Annual View"!B9: SEC share count / Google market cap / price, snapped to a clean ratio), so per-share results match the US-listed price.\n'+context,
+    F6: 'LATEST DILUTED SHARE COUNT (ADR EQUIVALENTS)\nG6 = weighted diluted ordinary shares of '+fy+' divided by the ordinary shares per ADR ("Annual View"!B9: from the ADR table at "Annual View"!A43, else inferred from Google\'s market cap when within 5% of a clean ratio), so per-share results match the US-listed price. P/E, P/S, P/FCF and yields use price x this count.\n'+context,
     F7: 'LATEST REPORTED FISCAL YEAR\nG7 shows the latest fiscal year in SEC data and its year end. If it ended more than 500 days ago, valuations show a dash ("too old for valuations").\n'+context
   };
 }
