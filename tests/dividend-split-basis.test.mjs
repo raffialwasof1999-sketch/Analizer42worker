@@ -37,3 +37,17 @@ test('chained splits (4-for-1 then 10-for-1) and missing values', () => {
   const out = normalizeDividendsPerShare(r, [1, 10, null, 40]);
   near(out.values, [0.01, 0.01, null, 0.01]);
 });
+
+test('Nvidia: quarters restated for the 4-for-1 split but not the 10-for-1 need 10x', () => {
+  // Real: 0.004 after both splits; 2020 quarters filed as 0.04 (after 4:1 only).
+  const r = rows([['2024-10-27', 0.01], ['2023-10-29', 0.004], ['2021-05-02', 0.004], ['2020-10-25', 0.04]]);
+  const out = normalizeDividendsPerShare(r, [1, 10, 40, 40]);
+  near(out.values, [0.01, 0.004, 0.004, 0.004]);
+});
+
+test('a units error in SEC data (Whirlpool 1,750,000 for $1.75) becomes null', () => {
+  const r = rows([['a', 1.75], ['b', 1750000], ['c', 1.75]]);
+  const out = normalizeDividendsPerShare(r, [1, 1, 1]);
+  near(out.values, [1.75, null, 1.75]);
+  assert.equal(out.adjustments[0].reason, 'implausible');
+});

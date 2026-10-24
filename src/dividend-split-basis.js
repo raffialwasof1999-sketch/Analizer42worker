@@ -10,10 +10,14 @@
  *   - that ratio is proven by the share-count split factors (from
  *     fcfPerShare: net income / today's-basis EPS vs the filed share count)
  *     for this quarter relative to newer ones.
- * A company without a proven split is never changed, so a dividend cut
- * cannot be mistaken for a split. A negative quarterly dividend (a Q4
+ * The ratio can be any step between proven split factors (Nvidia's 2020
+ * quarters were restated for its 2021 4-for-1 split but not the 2024
+ * 10-for-1, so they need 10x, not 40x). A company without a proven split
+ * is never rescaled, so a dividend cut cannot be mistaken for a split.
+ * Impossible values become null: a negative quarterly dividend (a Q4
  * derived from an annual total and year-to-date figures on different
- * bases) is impossible and becomes null.
+ * bases), or one more than 100x off its neighbour without a split ratio
+ * (a units error in SEC's data, e.g. Whirlpool's 1,750,000 for $1.75).
  *
  * @param rows    newest-first quarterly rows with dividendsPerShare
  * @param factors newest-first split factors from fcfPerShare (null = unknown)
@@ -32,11 +36,16 @@ export function normalizeDividendsPerShare(rows,factors=[]) {
     if(!finite(v)){ values.push(null); return; }
     if(v<0){ values.push(null); adjustments.push({periodEnd:row.fiscalPeriodEnd,original:v,adjusted:null,reason:'negative'}); return; }
     if(ref && ref.value>0 && v>0){
-      // Candidate ratios: this row's cumulative factor relative to newer factors.
-      const candidates=[...new Set(fac.slice(0,i).map(f=>fac[i]/f).filter(r=>r>=1.5))];
+      // Candidate ratios: any step between the proven factors up to this row.
+      const seen=[...new Set(fac.slice(0,i+1))];
+      const candidates=[...new Set(seen.flatMap(a=>seen.map(b=>a/b)))].filter(r=>r>=1.5);
       const d=v/ref.value;
       const r=candidates.find(c=>Math.abs(d/c-1)<=0.15);
       if(r){ adjustments.push({periodEnd:row.fiscalPeriodEnd,original:v,adjusted:v/r,ratio:r}); v=v/r; }
+      else if(d>100||d<0.01){
+        adjustments.push({periodEnd:row.fiscalPeriodEnd,original:v,adjusted:null,reason:'implausible'});
+        values.push(null); return;
+      }
     }
     values.push(v);
     if(v>0) ref={value:v};
