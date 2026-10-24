@@ -51,11 +51,32 @@ cell together with its I and J cells (never copy, never insert whole rows).
 
 ## Safe to change in the sheet
 
-Analyzer H2:J23 (headings, names, formulas, notes), B14:D17, H23+,
+Analyzer H2:L23 (headings, names, formulas, notes), B14:D17, H23+,
 rows 29+ (the "NOTES" block, from the worker's `?blankReasons=1`), notes on
 cells not listed above, the Historical P/E Data tab, Financial Data AF+ and
 Quarterly Data AA+ (one `IMPORTDATA` in AA2, `quarterlyExtrasCsv=1`, fills
 AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
+
+## Comparison columns J, K, L (sheet only; no script or worker part)
+
+- **J, Google Finance:** the GOOGLEFINANCE formula where it offers the
+  figure (J4 P/E, J23 EPS/price, market cap in J6); otherwise `IMPORTXML`
+  of google.com/finance/quote/TICKER:EXCHANGE (B2, E2): J6 revenue (last
+  four quarters from the income-statement table), J9 net income / revenue,
+  J16 the "Dividend" line (a forward-rate yield). Everything else is `N/A`
+  (Google never offers it); `-` means no value for this company right now.
+- **K, Stock Analysis** and **L, Finviz:** looked up in the hidden **Web
+  Data** tab, which fetches each site's page once per ticker (A2: Stock
+  Analysis statistics rows, label in A, text in C, number in E; G2: Finviz
+  snapshot cells, label then value, number for the label in H). Add a new
+  figure by looking it up there rather than adding another `IMPORTXML`.
+  Definitions that differ from ours (PEG horizon, ROIC, Stock Analysis's
+  annual-rate dividends, Finviz FCF = market cap / P/FCF) are in the notes.
+- These read web pages, so a site redesign or block turns cells to `-`.
+  Yahoo Finance and Macrotrends block Google Sheets (tested).
+- Dividend Yield / Per Share (TTM) in column I sum the last four *filed*
+  quarters, so after a dividend change they lag the sites until the next
+  report (Nvidia's raise, Whirlpool's cut); that is expected.
 
 ## Worker rules (checked by `tests/sheet-compatibility.test.mjs`)
 
