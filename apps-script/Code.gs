@@ -766,6 +766,29 @@ function aaTickerEdited(e) {
    MAIN SEC FINANCIAL DATA REFRESH
    ========================================================= */
 
+/**
+ * After a failed import, say why in the status box (B7) and blank the
+ * company name (B4), instead of leaving the previous company's name with a
+ * generic mismatch warning. The next successful refresh rewrites both.
+ * Transient conflicts with another refresh are left alone, because that
+ * other refresh writes the status itself.
+ */
+function aaShowFailedImport_(ss,message) {
+  if (/Another SEC refresh is in progress|Ticker changed during fetch/.test(message)) return;
+  try {
+    const d = ss.getSheetByName(AA.dashboard);
+    if (!d) return;
+    const ticker = String(d.getRange(AA.tickerCell).getDisplayValue()||'').trim().toUpperCase();
+    const reason = message.replace(/^Worker HTTP \d+:\s*/,'');
+    d.getRange('B7').setValue(
+      '\u26A0 SEC IMPORT FAILED for '+ticker+'\n'+reason+
+      '\nColumn I stays blank for this ticker.');
+    d.getRange(AA.companyCell).setValue('-');
+  } catch (e) {
+    console.error('Status update failed: '+String(e.message||e));
+  }
+}
+
 function refreshStockAnalyzer() {
   const lock =
     LockService.getDocumentLock() ||
@@ -982,6 +1005,7 @@ function refreshStockAnalyzer() {
         'SEC refresh failed',
         10
       );
+      aaShowFailedImport_(ss,String(err.message||err));
     }
 
     throw err;
