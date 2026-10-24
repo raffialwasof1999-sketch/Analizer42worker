@@ -10,7 +10,11 @@
  * sheet's job (it has live exchange rates and prices).
  */
 
-export const FOREIGN_ANNUAL_FORMS = ['20-F','20-F/A','40-F','40-F/A'];
+// Full-year figures from the annual report, or from a 6-K: Novo Nordisk
+// files its annual report as a 6-K first, and SEC's data holds its
+// 2015-2018 years only from those. Only full-year durations are read, and
+// the latest filing wins (a later 20-F supersedes the 6-K).
+export const FOREIGN_ANNUAL_FORMS = ['20-F','20-F/A','40-F','40-F/A','6-K','6-K/A'];
 
 /** True when the issuer files 20-F/40-F annual reports and no 10-K/10-Q. */
 export function isForeignAnnualFiler(sub) {

@@ -134,3 +134,13 @@ test('US companies are unchanged and now say they are quarterly, in USD', async 
     assert.ok(d.quarterlyFinancials.length>0);
   } finally { globalThis.fetch=original; }
 });
+
+test('full-year figures filed in a 6-K annual report count (Novo Nordisk 2015-2018)', async () => {
+  const six=(y,v)=>f(y,v,`0000000000-${y+1}-6k${y}`,`${y+1}-02-01`,'6-K');
+  const facts={'ifrs-full':{
+    Revenue:unit('DKK',[...report(2020,[126e9,122e9]),six(2018,112e9),six(2017,111e9)]),
+    ProfitLossAttributableToOwnersOfParent:unit('DKK',[...report(2020,[42e9,39e9]),six(2018,38.6e9),six(2017,38.1e9)])}};
+  const d=await (await run(facts)).json();
+  assert.deepEqual(d.annualFinancials.map(r=>r.fiscalYear),[2020,2019,2018,2017]);
+  assert.equal(d.annualFinancials[2].revenue,112e9);
+});

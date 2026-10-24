@@ -136,8 +136,11 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
   currency, writes Quarterly Data Y2 = ticker (so ticker checks work) and
   Z3:Z6, and B7 shows the annual status. Converting to US dollars and ADR
   shares is the sheet's job.
-- Known gaps: SEC's data has no TSMC FY2025 yet; Toronto-Dominion also
-  files 6-K quarters with data, which annual mode ignores.
+- Full-year figures may come from a 6-K (Novo Nordisk files its annual
+  report as a 6-K first); the latest filing wins.
+- Known gaps: SEC's data has no TSMC FY2025 yet; TSMC's debt (bonds plus
+  loans) and per-share dividends (quarterly) are not combined, so they stay
+  null; Toronto-Dominion also files 6-K quarters, which annual mode ignores.
 
 ## Checklist for every requested change
 
