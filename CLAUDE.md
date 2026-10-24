@@ -142,7 +142,10 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
   `=IF('Quarterly Data'!$Z$6="annual",'Annual View'!$Bn,<US formula>)`,
   so US companies run the unchanged formula. The hidden **Annual View** tab
   holds the annual versions: latest fiscal year x live exchange rate (B4),
-  ADR ratio (B9 = SEC diluted shares / (market cap / price), snapped),
+  ADR ratio (B9: the editable table at A43:B, else SEC diluted shares /
+  (Google market cap / price) within 5% of a clean ratio), market value
+  (B19 = price x diluted shares / ratio; Google's market cap is wrong for
+  some ADRs, e.g. TSMC), which P/E, P/S, P/FCF, EV and yields use,
   freshness (B7: year ended within 500 days, else valuations show "-"),
   daily 5-year P/E and P/FCF from price and rate history in H:N (shown in
   the Sheets UI only; the API can't read GOOGLEFINANCE history), and the
