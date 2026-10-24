@@ -13,6 +13,7 @@ import { alignQuarterlyDilutedEPS } from './diluted-eps-share-basis.js';
 import { withPredecessor } from './sec-predecessor.js';
 import { blankReasons, blankReasonsCsv } from './blank-reasons.js';
 import { fcfPerShare } from './fcf-per-share.js';
+import { debtFreeEvidence } from './debt-free.js';
 import { normalizeDividendsPerShare } from './dividend-split-basis.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
 import { FOREIGN_ANNUAL_FORMS, IFRS_TAGS, isForeignAnnualFiler, annualFormOf, foreignReportingBasis, reportBasis, composedIfrsDebt, coverSharesOutstanding } from './foreign-annual.js';
@@ -373,7 +374,7 @@ export function periods(map,forms=['10-K','10-K/A']) {
   return (result.length ? result : from('netIncome')).slice(0,21);
 }
 
-export function buildAnnual(map,ends,cik=null,forms=['10-K','10-K/A']) {
+export function buildAnnual(map,ends,cik=null,forms=['10-K','10-K/A'],debtFree=null) {
 
   const raw = ends.map(end => {
     const get = k =>
@@ -390,6 +391,10 @@ export function buildAnnual(map,ends,cik=null,forms=['10-K','10-K/A']) {
 
     const debtContext={cik,periodEnd:end,form:forms[0],noCurrentDebtNearby:noCurrentDebtNear(map,end)};
     r.totalDebt = debt(get,debtContext);
+    if (r.totalDebt===null && debtFree?.(end,forms,map.totalAssets)) {
+      r.totalDebt = 0;   // debt-free: see debt-free.js
+      r.debtEvidence = {status:'no-debt-in-filing'};
+    }
     const proof=auditedAbsentCurrentDebtProof(debtContext,get('longTermDebt'));
     if(proof && r.totalDebt===proof.noncurrent &&
        get('shortTermDebt')===null &&
@@ -452,7 +457,7 @@ export function netAcquisitionsQuarter(r,map,end,isQ4,forms,prev,j) {
   prev.__netAcquisitions=ytd;
 }
 
-function buildQuarterly(map,ends,cik=null) {
+function buildQuarterly(map,ends,cik=null,debtFree=null) {
   const formsQ = ['10-Q','10-Q/A'];
   const formsY = ['10-K','10-K/A'];
 
@@ -572,6 +577,10 @@ function buildQuarterly(map,ends,cik=null) {
 
       const debtContext={cik,periodEnd:end,form:isQ4?'10-K':'10-Q',noCurrentDebtNearby:noCurrentDebtNear(map,end)};
       r.totalDebt = debt(get,debtContext);
+      if (r.totalDebt===null && debtFree?.(end,forms,map.totalAssets)) {
+        r.totalDebt = 0;   // debt-free: see debt-free.js
+        r.debtEvidence = {status:'no-debt-in-filing'};
+      }
       const proof=auditedAbsentCurrentDebtProof(debtContext,get('longTermDebt'));
       if(proof && r.totalDebt===proof.noncurrent &&
          get('shortTermDebt')===null &&
@@ -1251,12 +1260,13 @@ async function handleRequest(request) {
       );
 
       const ends = periods(map);
-      const annualFinancials = buildAnnual(map,ends,cik);
+      const debtFree = debtFreeEvidence(gaap);
+      const annualFinancials = buildAnnual(map,ends,cik,undefined,debtFree);
       if (!annualFinancials.length) {
         const foreign = foreignFilerReason(sub, facts.entityName||company.title||ticker);
         if (foreign) throw Error(foreign);
       }
-      const quarters = buildQuarterly(map,ends,cik);
+      const quarters = buildQuarterly(map,ends,cik,debtFree);
 
       const earningsHistory = await fullQuarterFilingHistory(sub,quarters,cik,secFetch);
       assignQuarterDates(quarters,earningsHistory.filings);
