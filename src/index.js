@@ -15,6 +15,7 @@ import { blankReasons, blankReasonsCsv } from './blank-reasons.js';
 import { fcfPerShare } from './fcf-per-share.js';
 import { normalizeDividendsPerShare } from './dividend-split-basis.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
+import { FOREIGN_ANNUAL_FORMS, IFRS_TAGS, isForeignAnnualFiler, annualFormOf, foreignReportingBasis, reportBasis } from './foreign-annual.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage, fillFilingDatesFromFacts } from './sec-earnings-dates.js';
 
 /**
@@ -33,7 +34,7 @@ const CONTACT = 'Active Analyzer contact raffialwasof.1999@gmail.com';
 const SEC = 'https://data.sec.gov';
 const VERSION = 'AA_SEC_V3';
 
-const ANNUAL_FIELDS = [
+export const ANNUAL_FIELDS = [
   'fiscalYear','revenue','netIncome','freeCashFlow','dilutedShares',
   'profitMargin','freeCashFlowMargin','roic','operatingIncome',
   'operatingCashFlow','capitalExpenditures','totalAssets','totalLiabilities',
@@ -59,7 +60,7 @@ const QUARTER_FIELDS = [
   'netAcquisitions','acquisitionsBasis'
 ];
 
-const TAGS = {
+export const TAGS = {
   revenue: [
     // Banks' total net revenue (JPM, BAC...). Non-banks never report it, and
     // a bank's contract-revenue tags cover fee income only, so it goes first.
@@ -223,17 +224,18 @@ async function secFetch(url) {
   return res.json();
 }
 
-function fieldFacts(gaap,key) {
-  const unit = UNITS[key] || 'USD';
+// tags/currency let foreign annual filers reuse this (foreign-annual.js).
+export function fieldFacts(gaap,key,{tags=TAGS,currency='USD'}={}) {
+  const unit = (UNITS[key] || 'USD').replace('USD',currency);
 
-  return (TAGS[key] || []).flatMap((tag,priority) =>
+  return (tags[key] || []).flatMap((tag,priority) =>
     (gaap[tag]?.units?.[unit] || [])
       .filter(r => n(r.val) !== null && validDate(r.end))
       .map(r => ({...r,priority,tag}))
   );
 }
 
-function chooseRecord(records,end,kind,forms) {
+export function chooseRecord(records,end,kind,forms) {
   const found = records.filter(r =>
     r.end === end &&
     forms.includes(r.form) &&
@@ -350,8 +352,7 @@ function fiscalYearOf(end) {
   return end.slice(5,10)<='01-07' ? year-1 : year;
 }
 
-function periods(map) {
-  const forms = ['10-K','10-K/A'];
+export function periods(map,forms=['10-K','10-K/A']) {
 
   const from = key =>
     [...new Set(
@@ -370,8 +371,7 @@ function periods(map) {
   return (result.length ? result : from('netIncome')).slice(0,21);
 }
 
-function buildAnnual(map,ends,cik=null) {
-  const forms = ['10-K','10-K/A'];
+export function buildAnnual(map,ends,cik=null,forms=['10-K','10-K/A']) {
 
   const raw = ends.map(end => {
     const get = k =>
@@ -386,7 +386,7 @@ function buildAnnual(map,ends,cik=null) {
       r[k] = get(k);
     }
 
-    const debtContext={cik,periodEnd:end,form:'10-K',noCurrentDebtNearby:noCurrentDebtNear(map,end)};
+    const debtContext={cik,periodEnd:end,form:forms[0],noCurrentDebtNearby:noCurrentDebtNear(map,end)};
     r.totalDebt = debt(get,debtContext);
     const proof=auditedAbsentCurrentDebtProof(debtContext,get('longTermDebt'));
     if(proof && r.totalDebt===proof.noncurrent &&
@@ -633,6 +633,36 @@ function outputRows(rows,fields) {
 }
 
 /**
+ * Annual rows for a 20-F/40-F filer, in its reporting currency, through the
+ * same buildAnnual as a US company. Per-share figures (EPS, dividends per
+ * share) and share counts are put on the newest report's share basis
+ * (reportBasis); a figure from a report whose basis can't be proven is null.
+ * @returns {{rows, basis:{standard,taxonomy,currency}|null}}
+ */
+export function buildForeignAnnual(facts,cik=null) {
+  const basis=foreignReportingBasis(facts);
+  if (!basis) return {rows:[],basis:null};
+  const bucket=facts.facts[basis.taxonomy];
+  const tags=basis.taxonomy==='ifrs-full'?IFRS_TAGS:TAGS;
+  const map=Object.fromEntries(Object.keys(TAGS).map(k=>
+    [k,fieldFacts(bucket,k,{tags,currency:basis.currency})]));
+  const forms=FOREIGN_ANNUAL_FORMS;
+  const rows=buildAnnual(map,periods(map,forms),cik,forms);
+  const reports=reportBasis([...map.dilutedEPS,...map.basicEPS],
+    [...map.dilutedShares,...map.basicShares]);
+  for (const r of rows) {
+    const pick=k=>chooseRecord(map[k],r.fiscalPeriodEnd,'annual',forms);
+    for (const k of ['dilutedEPS','basicEPS','dividendsPerShare']) {
+      const rec=pick(k), m=rec?reports.get(rec.accn):null;
+      r[k]=rec&&m!=null?rec.val*m:null;
+    }
+    const rec=pick('dilutedShares'), m=rec?reports.get(rec.accn):null;
+    r.dilutedShares=rec&&m!=null?rec.val/m:null;
+  }
+  return {rows,basis};
+}
+
+/**
  * A plain reason when an issuer files as a foreign private issuer (annual
  * 20-F or 40-F, quarterly results as 6-K press releases, which SEC's
  * structured data does not include) instead of 10-K/10-Q. Null otherwise.
@@ -649,20 +679,20 @@ export function foreignFilerReason(sub,name,standard=null) {
     `Columns J-L still show outside data.`;
 }
 
-function validateOutput(a,q) {
+function validateOutput(a,q,annualOnly=false) {
   // Short SEC histories are valid. Never invent missing periods.
 
   if (!a.length) {
     throw Error('No usable SEC annual financial periods found.');
   }
 
-  if (!q.length) {
+  if (!q.length && !annualOnly) {
     throw Error('No usable SEC quarterly financial periods found.');
   }
 
   const latest = q[0];
 
-  if (n(latest.revenue)===null || n(latest.netIncome)===null) {
+  if (latest && (n(latest.revenue)===null || n(latest.netIncome)===null)) {
     throw Error(
       'Latest SEC quarter lacks reported revenue or net income.'
     );
@@ -836,7 +866,11 @@ export async function routeRequest(request,handler=handleRequest) {
     'access-control-allow-origin':'*',
     'cache-control':'public, max-age=900'
   }});
-  const data=JSON.parse(result.body);
+  return feedResponse(feed,JSON.parse(result.body),url,ticker);
+}
+
+// A feed's CSV, derived from the import's JSON.
+function feedResponse(feed,data,url,ticker) {
   if (feed==='reasons') return csvResponse(blankReasonsCsv(data.blankReasons||[],ticker));
   if (feed==='fcf') return csvResponse(fcfCsv(data.quarterlyFinancials));
   if (feed==='acq') return csvResponse(acqCsv(data.quarterlyFinancials));
@@ -960,6 +994,45 @@ async function handleRequest(request) {
       const succession = await withPredecessor(facts,sub,cik,secFetch,SEC);
       facts = succession.facts;
       sub = succession.sub;
+
+      // Foreign private issuers (20-F/40-F, no 10-K/10-Q): annual rows only,
+      // in the reporting currency; the sheet converts to US dollars.
+      if (isForeignAnnualFiler(sub)) {
+        const name=facts.entityName||company.title||ticker;
+        const foreign=buildForeignAnnual(facts,cik);
+        if (!foreign.rows.length) {
+          throw Error(foreignFilerReason(sub,name,facts.facts?.['ifrs-full']?'IFRS':null)||
+            'No usable SEC annual financial periods found.');
+        }
+        validateOutput(foreign.rows,[],true);
+        const form=annualFormOf(sub);
+        const index=(sub.tickers||[]).findIndex(t=>String(t).toUpperCase()===ticker);
+        const data={
+          schemaVersion:VERSION,success:true,ticker,cik,companyName:name,
+          exchange:index>=0?(sub.exchanges?.[index]||''):'',
+          // 'annual': no quarterly rows; figures are in reportingCurrency.
+          dataBasis:'annual',
+          reportingCurrency:foreign.basis.currency,
+          reportingStandard:foreign.basis.standard,
+          annualReportForm:form,
+          annualFinancials:foreign.rows,
+          quarterlyFinancials:[],
+          blankReasons:[{metric:'Quarterly figures',reason:
+            `${name} files annual ${form} reports with the SEC (no quarterly 10-Q data), `+
+            `with figures in ${foreign.basis.currency} under ${foreign.basis.standard}. `+
+            `Financial Data holds ${foreign.rows.length} fiscal years (latest FY${foreign.rows[0].fiscalYear}); `+
+            `Quarterly Data stays empty.`}],
+          coverage:{annualYears:foreign.rows.length,reportedQuarters:0,latestFourConsecutive:false},
+          retrievedAt:new Date().toISOString(),
+          provenance:'SEC EDGAR companyfacts ('+form+' annual reports) and submissions; Google Finance supplies live prices and exchange rates'
+        };
+        const feed=url.searchParams.get('blankReasons')==='1' ? 'reasons'
+          : url.searchParams.has('basicEpsCsv') ? 'basic'
+          : url.searchParams.has('fcfPerShareCsv') ? 'fcf'
+          : url.searchParams.has('netAcquisitionsCsv') ? 'acq'
+          : url.searchParams.has('quarterlyExtrasCsv') ? 'extras' : null;
+        return feed ? feedResponse(feed,data,url,ticker) : json(data);
+      }
 
       const gaap = facts.facts?.['us-gaap'];
 
@@ -1305,6 +1378,8 @@ async function handleRequest(request) {
         cik,
         companyName:facts.entityName||company.title||ticker,
         exchange:index>=0?(sub.exchanges?.[index]||''):'',
+        dataBasis:'quarterly',
+        reportingCurrency:'USD',
         annualFinancials:finalAnnual,
         quarterlyFinancials:finalQuarterly,
         // Additive source-input snapshots for future metrics without

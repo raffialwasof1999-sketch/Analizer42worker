@@ -1,0 +1,136 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import worker, { routeRequest, resetFeedReuse } from '../src/index.js';
+import { isForeignAnnualFiler, foreignReportingBasis, reportBasis } from '../src/foreign-annual.js';
+
+// One fact as Company Facts lists it.
+const f=(fy,val,accn,filed,form='20-F')=>({start:`${fy}-01-01`,end:`${fy}-12-31`,val,form,accn,filed,fy:Number(accn.slice(-4)),fp:'FY'});
+// A 20-F filed in year y+1 covering years y, y-1, y-2 with the given values.
+const report=(y,vals,form='20-F')=>vals.map((v,i)=>f(y-i,v,`0000000000-${y+1}-${y}`,`${y+1}-03-01`,form));
+const unit=(u,list)=>({units:{[u]:list}});
+const subOf=forms=>({cik:1,filings:{recent:{form:forms,filingDate:[],reportDate:[],accessionNumber:[],items:[]}},tickers:['NVO'],exchanges:['NYSE']});
+
+test('foreign annual filers: 20-F or 40-F and no 10-K/10-Q', () => {
+  assert.equal(isForeignAnnualFiler(subOf(['6-K','20-F','6-K'])),true);
+  assert.equal(isForeignAnnualFiler(subOf(['40-F'])),true);
+  assert.equal(isForeignAnnualFiler(subOf(['10-Q','20-F'])),false);   // switched to US forms (Shopify)
+  assert.equal(isForeignAnnualFiler(subOf(['10-K','8-K'])),false);
+});
+
+test('reporting currency: the unit with comparatives wins over a convenience translation (TSMC)', () => {
+  const facts={facts:{'ifrs-full':{ProfitLossAttributableToOwnersOfParent:{units:{
+    TWD:[...report(2024,[1158e9,838e9,1016e9]),...report(2023,[838e9,1016e9,596e9])],
+    USD:[f(2024,35.3e9,'0000000000-2025-2024','2025-03-01'),f(2023,27.3e9,'0000000000-2024-2023','2024-03-01')]}}}}};
+  assert.deepEqual(foreignReportingBasis(facts),{standard:'IFRS',taxonomy:'ifrs-full',currency:'TWD'});
+  // us-gaap foreign filer in euros (ASML)
+  const asml={facts:{'us-gaap':{NetIncomeLoss:unit('EUR',report(2025,[9.6e9,7.6e9,7.8e9]))}}};
+  assert.deepEqual(foreignReportingBasis(asml),{standard:'US GAAP',taxonomy:'us-gaap',currency:'EUR'});
+  assert.equal(foreignReportingBasis({facts:{}}),null);
+});
+
+test('report basis: a 2-for-1 split restated in the newer report scales the older report (Novo Nordisk 2023)', () => {
+  // The 2023 report restates 2022 and 2021 EPS at half; the 2022 report has
+  // the old basis and is the only source for 2020.
+  const eps=[...report(2023,[18.62,12.22,10.37]).map(x=>({...x,tag:'D'})),
+    ...report(2022,[24.44,20.74,18.67]).map(x=>({...x,tag:'D'}))];
+  const b=reportBasis(eps,[]);
+  assert.equal(b.get('0000000000-2024-2023'),1);
+  assert.equal(b.get('0000000000-2023-2022'),0.5);
+  // Shares prove it too (the inverse ratio), and a mild restatement snaps to 1.
+  const shares=[...report(2023,[4.5e9,4.56e9,4.6e9]).map(x=>({...x,tag:'S'})),
+    ...report(2022,[2.28e9,2.3e9,2.33e9]).map(x=>({...x,tag:'S'}))];
+  assert.equal(reportBasis([],shares).get('0000000000-2023-2022'),0.5);
+  const restated=[...report(2023,[10,9.8]).map(x=>({...x,tag:'D'})),...report(2022,[9.6,9.0]).map(x=>({...x,tag:'D'}))];
+  assert.equal(reportBasis(restated,[]).get('0000000000-2023-2022'),1);
+  // A big non-split restatement proves nothing: null, not a guess.
+  const odd=[...report(2023,[10,7.0]).map(x=>({...x,tag:'D'})),...report(2022,[9.6,9.0]).map(x=>({...x,tag:'D'}))];
+  assert.equal(reportBasis(odd,[]).get('0000000000-2023-2022'),null);
+});
+
+// An IFRS company (DKK) with a 2-for-1 split between its 2022 and 2023 reports.
+const ifrs={
+  Revenue:unit('DKK',[...report(2023,[232e9,177e9,140e9]),...report(2022,[177e9,140e9,126e9])]),
+  ProfitLossAttributableToOwnersOfParent:unit('DKK',[...report(2023,[84e9,55.5e9,47.8e9]),...report(2022,[55.5e9,47.8e9,42.1e9])]),
+  CashFlowsFromUsedInOperatingActivities:unit('DKK',report(2023,[96e9,78.9e9,55e9])),
+  PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities:unit('DKK',report(2023,[22e9,12e9,7e9])),
+  DilutedEarningsLossPerShare:unit('DKK/shares',[...report(2023,[18.62,12.22,10.37]),...report(2022,[24.44,20.74,18.67])]),
+  AdjustedWeightedAverageShares:unit('shares',[...report(2023,[4.5e9,4.54e9,4.61e9]),...report(2022,[2.27e9,2.3e9,2.25e9])]),
+  DividendsRecognisedAsDistributionsToOwnersPerShare:unit('DKK/shares',[...report(2023,[6.4,5.0]),...report(2022,[10.0,8.4,7.6])])
+};
+async function run(facts,forms=['6-K','20-F'],path='/?ticker=NVO'){
+  const original=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    url=String(url);
+    if(url.includes('company_tickers.json'))return Response.json({'0':{ticker:'NVO',cik_str:1,title:'Novo'}});
+    if(url.includes('/companyfacts/'))return Response.json({cik:1,entityName:'Novo Nordisk A/S',facts});
+    if(url.includes('/submissions/'))return Response.json(subOf(forms));
+    throw Error('Unexpected '+url);
+  };
+  try{ resetFeedReuse(); return await routeRequest(new Request('https://example.test'+path)); }
+  finally{globalThis.fetch=original;}
+}
+
+test('an IFRS 20-F filer imports annual rows in its currency, per-share figures on today\'s basis', async () => {
+  const d=await (await run({'ifrs-full':ifrs})).json();
+  assert.equal(d.success,true,JSON.stringify(d).slice(0,300));
+  assert.equal(d.dataBasis,'annual');
+  assert.equal(d.reportingCurrency,'DKK');
+  assert.equal(d.reportingStandard,'IFRS');
+  assert.deepEqual(d.quarterlyFinancials,[]);
+  assert.deepEqual(d.annualFinancials.map(r=>r.fiscalYear),[2023,2022,2021,2020]);
+  const [y23,,,y20]=d.annualFinancials;
+  assert.equal(y23.revenue,232e9); assert.equal(y23.netIncome,84e9);
+  assert.equal(y23.freeCashFlow,74e9);
+  assert.equal(y23.dilutedEPS,18.62);
+  // 2020 appears only in the old report: EPS halved, shares doubled, DPS halved.
+  assert.equal(y20.dilutedEPS,18.67*0.5);
+  assert.equal(y20.dilutedShares,2.25e9*2);
+  assert.equal(y20.dividendsPerShare,3.8);
+  assert.equal(y20.revenue,126e9);
+  // Every written field is a finite number or null (the script's rule).
+  for (const r of d.annualFinancials) for (const [k,v] of Object.entries(r))
+    if (k!=='fiscalPeriodEnd') assert.ok(v===null||Number.isFinite(v),k);
+  assert.match(d.blankReasons[0].reason,/annual 20-F reports .* in DKK under IFRS/);
+});
+
+test('feeds for an annual-only company: empty quarterly extras, annual basic EPS, the reason note', async () => {
+  const facts={'ifrs-full':{...ifrs,BasicEarningsLossPerShare:unit('DKK/shares',report(2023,[18.67,12.26,10.4]))}};
+  assert.equal(await (await run(facts,undefined,'/?ticker=NVO&quarterlyExtrasCsv=1')).text(),'\n');
+  assert.equal(await (await run(facts,undefined,'/?ticker=NVO&basicEpsCsv=annual')).text(),'18.67\n12.26\n10.4\nNA\n');
+  assert.match(await (await run(facts,undefined,'/?ticker=NVO&blankReasons=1')).text(),/Quarterly figures/);
+});
+
+test('a us-gaap 20-F filer in euros (ASML) uses the US tag list', async () => {
+  const gaap={
+    RevenueFromContractWithCustomerExcludingAssessedTax:unit('EUR',report(2025,[32.7e9,28.3e9,27.6e9])),
+    NetIncomeLoss:unit('EUR',report(2025,[9.6e9,7.6e9,7.8e9])),
+    EarningsPerShareDiluted:unit('EUR/shares',report(2025,[24.71,19.24,19.91]))
+  };
+  const d=await (await run({'us-gaap':gaap})).json();
+  assert.equal(d.reportingCurrency,'EUR');
+  assert.equal(d.reportingStandard,'US GAAP');
+  assert.equal(d.annualFinancials[0].revenue,32.7e9);
+  assert.equal(d.annualFinancials[0].dilutedEPS,24.71);
+});
+
+test('US companies are unchanged and now say they are quarterly, in USD', async () => {
+  const fu=(start,end,val,form='10-K')=>({start,end,val,form,accn:'0001234567-25-000001',filed:'2025-10-30'});
+  const annual=v=>[fu('2024-09-29','2025-09-27',v),fu('2023-10-01','2024-09-28',v*.9)];
+  const ytd=v=>[fu('2024-09-29','2024-12-28',v[0],'10-Q'),fu('2024-09-29','2025-03-29',v[1],'10-Q'),fu('2024-09-29','2025-06-28',v[2],'10-Q')];
+  const gaap={Revenues:unit('USD',[...annual(400e9),...ytd([100e9,205e9,315e9])]),
+    NetIncomeLoss:unit('USD',[...annual(100e9),...ytd([25e9,51e9,78e9])])};
+  const original=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    url=String(url);
+    if(url.includes('company_tickers.json'))return Response.json({'0':{ticker:'TEST',cik_str:1,title:'X'}});
+    if(url.includes('/companyfacts/'))return Response.json({cik:1,entityName:'X',facts:{'us-gaap':gaap}});
+    if(url.includes('/submissions/'))return Response.json({...subOf(['10-K','10-Q']),tickers:['TEST']});
+    throw Error('Unexpected '+url);
+  };
+  try{
+    const d=await (await worker.fetch(new Request('https://example.test/?ticker=TEST'))).json();
+    assert.equal(d.success,true,JSON.stringify(d).slice(0,300));
+    assert.equal(d.dataBasis,'quarterly'); assert.equal(d.reportingCurrency,'USD');
+    assert.ok(d.quarterlyFinancials.length>0);
+  } finally { globalThis.fetch=original; }
+});
