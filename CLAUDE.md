@@ -53,7 +53,8 @@ cell together with its I and J cells (never copy, never insert whole rows).
 
 ## Safe to change in the sheet
 
-Analyzer H2:L23 (headings, names, formulas, notes), B14:D17, H23+,
+Analyzer H2:L23 (headings, names, formulas, notes), B14:D17, H23+, the
+hidden Annual View tab,
 rows 29+ (the "NOTES" block, from the worker's `?blankReasons=1`), notes on
 cells not listed above, the Historical P/E Data tab, Financial Data AF+ and
 Quarterly Data AA+ (one `IMPORTDATA` in AA2, `quarterlyExtrasCsv=1`, fills
@@ -136,6 +137,17 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
   currency, writes Quarterly Data Y2 = ticker (so ticker checks work) and
   Z3:Z6, and B7 shows the annual status. Converting to US dollars and ADR
   shares is the sheet's job.
+- **Sheet side:** E5, G2:G7, the history table B14:D17 and column I
+  (I4-I7, I9, I12-I18, I22, I23) are each wrapped as
+  `=IF('Quarterly Data'!$Z$6="annual",'Annual View'!$Bn,<US formula>)`,
+  so US companies run the unchanged formula. The hidden **Annual View** tab
+  holds the annual versions: latest fiscal year x live exchange rate (B4),
+  ADR ratio (B9 = SEC diluted shares / (market cap / price), snapped),
+  freshness (B7: year ended within 500 days, else valuations show "-"),
+  daily 5-year P/E and P/FCF from price and rate history in H:N (shown in
+  the Sheets UI only; the API can't read GOOGLEFINANCE history), and the
+  history table in B37:D40. The "(TTM)" labels in column H switch to
+  "(Latest FY)". A new column-I metric needs an annual branch there too.
 - Full-year figures may come from a 6-K (Novo Nordisk files its annual
   report as a 6-K first); the latest filing wins.
 - Known gaps: SEC's data has no TSMC FY2025 yet; TSMC's debt (bonds plus

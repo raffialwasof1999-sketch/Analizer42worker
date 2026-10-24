@@ -580,9 +580,35 @@ function aaHeaderNotes_(dashboard,p) {
       "SEC DATA STATUS\nAnalyzer!B7 compares the ticker in B2 with the imported sourceTicker (Quarterly Data!Y2). A mismatch means the imported SEC financials belong to a different company.\n\nLine 1: ticker, annual years and quarters imported.\nLine 2: last imported quarter (Quarterly Data!A2:B2).\nLine 3: Released = filing date of the SEC 8-K Item 2.02 earnings release (X2); SEC filed = 10-Q/10-K filing date (W2).\nLine 4: time of the last successful import (Z2).\n\nIf the company has announced a newer quarter but line 2 still shows the older one, it has not been imported yet: new quarters arrive once the 10-Q/10-K is filed with the SEC, usually a few days after the announcement. Refresh with B6."
   };
 
+  // Annual-only (foreign) companies: the dashboard reads the hidden
+  // 'Annual View' tab, so the notes describe that instead.
+  if (annualOnly) Object.assign(notes, aaAnnualNotes_(p,context));
+
   for (const [cell,note] of Object.entries(notes)) {
     dashboard.getRange(cell).setNote(note);
   }
+}
+
+/**
+ * Notes for an annual-only (20-F/40-F) company. G2:G7, E5, the history
+ * table and column I switch to the hidden 'Annual View' tab when Quarterly
+ * Data!Z6 is "annual": latest fiscal year, converted to US dollars at
+ * Google Finance's live rate, per-share figures per ADR.
+ */
+function aaAnnualNotes_(p,context) {
+  const cur = p.reportingCurrency;
+  const usd = cur==='USD' ? 'in US dollars' :
+    'converted from '+cur+' to US dollars at the live Google Finance rate ("Annual View"!B4)';
+  const fy = 'the latest fiscal year (Financial Data row 2)';
+  return {
+    F2: 'LATEST REVENUE (LATEST FISCAL YEAR for this company)\nG2 = revenue of '+fy+', '+usd+'. This company reports annually, so there is no trailing-twelve-month figure.\n'+context,
+    F3: 'LATEST NET INCOME (LATEST FISCAL YEAR for this company)\nG3 = net income attributable to shareholders for '+fy+', '+usd+'.\n'+context,
+    F4: 'LATEST FREE CASH FLOW (LATEST FISCAL YEAR for this company)\nG4 = operating cash flow minus capital expenditures for '+fy+', '+usd+'.\n'+context,
+    C5: 'ENTERPRISE VALUE\nE5 = Google Finance market cap E4 + (total debt - cash) at the end of '+fy+', '+usd+'.\n'+context,
+    F5: 'LATEST COMMON SHARES OUTSTANDING\nNot available for annual-only companies (no 10-Q cover page), so G5 shows a dash. G6 has the diluted count.\n'+context,
+    F6: 'LATEST DILUTED SHARE COUNT (ADR EQUIVALENTS)\nG6 = weighted diluted ordinary shares of '+fy+' divided by the ordinary shares per ADR ("Annual View"!B9: SEC share count / Google market cap / price, snapped to a clean ratio), so per-share results match the US-listed price.\n'+context,
+    F7: 'LATEST REPORTED FISCAL YEAR\nG7 shows the latest fiscal year in SEC data and its year end. If it ended more than 500 days ago, valuations show a dash ("too old for valuations").\n'+context
+  };
 }
 
 /* =========================================================
