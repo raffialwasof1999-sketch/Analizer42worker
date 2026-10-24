@@ -15,7 +15,7 @@ import { blankReasons, blankReasonsCsv } from './blank-reasons.js';
 import { fcfPerShare } from './fcf-per-share.js';
 import { normalizeDividendsPerShare } from './dividend-split-basis.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
-import { FOREIGN_ANNUAL_FORMS, IFRS_TAGS, isForeignAnnualFiler, annualFormOf, foreignReportingBasis, reportBasis } from './foreign-annual.js';
+import { FOREIGN_ANNUAL_FORMS, IFRS_TAGS, isForeignAnnualFiler, annualFormOf, foreignReportingBasis, reportBasis, composedIfrsDebt, coverSharesOutstanding } from './foreign-annual.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage, fillFilingDatesFromFacts } from './sec-earnings-dates.js';
 
 /**
@@ -643,9 +643,18 @@ export function buildForeignAnnual(facts,cik=null) {
   const basis=foreignReportingBasis(facts);
   if (!basis) return {rows:[],basis:null};
   const bucket=facts.facts[basis.taxonomy];
-  const tags=basis.taxonomy==='ifrs-full'?IFRS_TAGS:TAGS;
+  // us-gaap foreign filers (ASML) pay dividends under PaymentsOfOrdinaryDividends;
+  // added here only, so US companies' tag lists are unchanged.
+  const tags=basis.taxonomy==='ifrs-full'?IFRS_TAGS:
+    {...TAGS,dividendsPaid:[...TAGS.dividendsPaid,'PaymentsOfOrdinaryDividends']};
   const map=Object.fromEntries(Object.keys(TAGS).map(k=>
     [k,fieldFacts(bucket,k,{tags,currency:basis.currency})]));
+  // IFRS bonds + bank loans when no Borrowings total is filed (TSMC).
+  if (basis.taxonomy==='ifrs-full') {
+    const filed=new Set(map.totalDebt.map(f=>f.end));
+    map.totalDebt.push(...composedIfrsDebt(bucket,basis.currency)
+      .filter(f=>!filed.has(f.end)).map(f=>({...f,priority:9})));
+  }
   const forms=FOREIGN_ANNUAL_FORMS;
   const rows=buildAnnual(map,periods(map,forms),cik,forms);
   const reports=reportBasis([...map.dilutedEPS,...map.basicEPS],
@@ -659,7 +668,17 @@ export function buildForeignAnnual(facts,cik=null) {
     const rec=pick('dilutedShares'), m=rec?reports.get(rec.accn):null;
     r.dilutedShares=rec&&m!=null?rec.val/m:null;
   }
-  return {rows,basis};
+  // No per-share dividend for the year (ASML pays interim and final
+  // dividends tagged as monthly periods; TSMC quarterly): dividends paid
+  // in the year / diluted shares, on today's share basis.
+  const dpsFromPaid=[];
+  for (const r of rows) {
+    if (r.dividendsPerShare===null && r.dividendsPaid>0 && r.dilutedShares>0) {
+      r.dividendsPerShare=r.dividendsPaid/r.dilutedShares;
+      dpsFromPaid.push(r.fiscalYear);
+    }
+  }
+  return {rows,basis,dpsFromPaid,shares:coverSharesOutstanding(facts)};
 }
 
 /**
@@ -1017,6 +1036,12 @@ async function handleRequest(request) {
           annualReportForm:form,
           annualFinancials:foreign.rows,
           quarterlyFinancials:[],
+          // Cover-page shares outstanding of the latest annual report
+          // (ordinary shares; the sheet converts to ADRs).
+          sharesOutstanding:foreign.shares.value,
+          sharesOutstandingAsOf:foreign.shares.asOf,
+          // Fiscal years whose dividendsPerShare = dividends paid / diluted shares.
+          dividendsPerShareFromPaid:foreign.dpsFromPaid,
           blankReasons:[{metric:'Quarterly figures',reason:
             `${name} files annual ${form} reports with the SEC (no quarterly 10-Q data), `+
             `with figures in ${foreign.basis.currency} under ${foreign.basis.standard}. `+

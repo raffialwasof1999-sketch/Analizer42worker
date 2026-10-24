@@ -20,8 +20,9 @@ Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`.
 
 - **Financial Data** columns A:AE, rows 2+ (`AA_ANNUAL_FIELDS`), and
   **Quarterly Data** columns A:Y, rows 2+ (`AA_QUARTER_FIELDS`), plus Z1/Z2
-  (import time) and Z3:Z6 (`reportingCurrency` / currency code,
-  `dataBasis` / `annual` or `quarterly`). Cleared and rewritten, with
+  (import time) and Z3:Z10 (`reportingCurrency` / currency code,
+  `dataBasis` / `annual` or `quarterly`, `sharesOutstanding` /
+  `sharesOutstandingAsOf`: cover-page ordinary shares, annual mode only). Cleared and rewritten, with
   number formats.
 - **Analyzer** B4 (company), E2 (exchange), B6 (unticked), the **B7
   formula** (`aaStatusFormula_`), and the **notes on F2-F7, C5 and A7**
@@ -153,9 +154,15 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
   "(Latest FY)". A new column-I metric needs an annual branch there too.
 - Full-year figures may come from a 6-K (Novo Nordisk files its annual
   report as a 6-K first); the latest filing wins.
-- Known gaps: SEC's data has no TSMC FY2025 yet; TSMC's debt (bonds plus
-  loans) and per-share dividends (quarterly) are not combined, so they stay
-  null; Toronto-Dominion also files 6-K quarters, which annual mode ignores.
+- IFRS debt with no Borrowings total is composed from noncurrent bonds +
+  bank loans + the larger current line (`composedIfrsDebt`, TSMC).
+  us-gaap foreign filers also read `PaymentsOfOrdinaryDividends` (ASML;
+  US tag lists unchanged). A year without a per-share dividend uses
+  dividends paid / diluted shares (`dividendsPerShareFromPaid` lists them).
+  Cover-page shares outstanding (`sharesOutstanding`, summed share classes)
+  feed Analyzer G5 through Quarterly Data Z8.
+- Known gaps: SEC's data has no TSMC FY2025 yet; Toronto-Dominion also
+  files 6-K quarters, which annual mode ignores.
 
 ## Checklist for every requested change
 

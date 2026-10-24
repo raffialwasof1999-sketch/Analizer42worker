@@ -206,3 +206,9 @@ test('annual-only companies get notes that describe the Annual View formulas', (
   for (const cell of ['F2','F3','F4','C5','F5','F6','F7']) assert.ok(body.includes(cell + ':'), cell);
   assert.ok(body.includes('"Annual View"!B9'));
 });
+
+test('annual-only refresh records cover-page shares outstanding in Quarterly Data Z7:Z10', () => {
+  assert.match(scriptSource, /\['sharesOutstanding'\],\[shares\],\s*\['sharesOutstandingAsOf'\],\[sharesAsOf\]/);
+  assert.match(scriptSource, /getRange\('Z3:Z10'\)\.getValues\(\)/);
+  assert.match(scriptSource, /Number\.isFinite\(p\.sharesOutstanding\)/);
+});
