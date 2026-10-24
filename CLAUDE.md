@@ -20,7 +20,9 @@ Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`.
 
 - **Financial Data** columns A:AE, rows 2+ (`AA_ANNUAL_FIELDS`), and
   **Quarterly Data** columns A:Y, rows 2+ (`AA_QUARTER_FIELDS`), plus Z1/Z2
-  (import time). Cleared and rewritten, with number formats.
+  (import time) and Z3:Z6 (`reportingCurrency` / currency code,
+  `dataBasis` / `annual` or `quarterly`). Cleared and rewritten, with
+  number formats.
 - **Analyzer** B4 (company), E2 (exchange), B6 (unticked), the **B7
   formula** (`aaStatusFormula_`), and the **notes on F2-F7, C5 and A7**
   (`aaHeaderNotes_`).
@@ -117,6 +119,28 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
   otherwise the quarter is null and I22 shows "-".
 - Sheets caches IMPORTDATA by URL: when a feed's output changes without a
   new import, bump its `&release=` tag.
+
+## Foreign companies (annual mode)
+
+- Issuers that file 20-F/40-F and no 10-K/10-Q (ASML, TSMC, Novo Nordisk,
+  SAP, Toronto-Dominion) go through `buildForeignAnnual` (`src/index.js`,
+  helpers in `src/foreign-annual.js`): the same `buildAnnual` with the
+  us-gaap list (ASML) or `IFRS_TAGS`, in the **reporting currency**
+  (the unit with comparatives; TSMC's USD convenience translation loses).
+  The response has `dataBasis:'annual'`, `reportingCurrency`,
+  `reportingStandard`, `annualReportForm` and `quarterlyFinancials: []`.
+- Per-share figures and share counts are put on the newest report's basis
+  (`reportBasis`: overlapping years between reports prove a split; Novo
+  Nordisk 2023). Shares are ordinary shares, not ADRs (TSMC ADR = 5).
+- The script accepts no quarters only with `dataBasis:'annual'` and a
+  currency, writes Quarterly Data Y2 = ticker (so ticker checks work) and
+  Z3:Z6, and B7 shows the annual status. Converting to US dollars and ADR
+  shares is the sheet's job.
+- Full-year figures may come from a 6-K (Novo Nordisk files its annual
+  report as a 6-K first); the latest filing wins.
+- Known gaps: SEC's data has no TSMC FY2025 yet; TSMC's debt (bonds plus
+  loans) and per-share dividends (quarterly) are not combined, so they stay
+  null; Toronto-Dominion also files 6-K quarters, which annual mode ignores.
 
 ## Checklist for every requested change
 

@@ -348,13 +348,18 @@ function aaValidatePayload_(p,ticker) {
 
   const a = p.annualFinancials;
   const q = p.quarterlyFinancials;
+  // Foreign 20-F/40-F filers: annual rows only, in reportingCurrency.
+  const annualOnly = p.dataBasis==='annual';
+  if (annualOnly && !/^[A-Z]{3}$/.test(String(p.reportingCurrency||''))) {
+    throw Error('Worker returned annual-only data without a reporting currency.');
+  }
 
   // IMPORTANT: Short histories are accepted.
   if (
     !Array.isArray(a) ||
     !Array.isArray(q) ||
     a.length<1 ||
-    q.length<1 ||
+    (q.length<1 && !annualOnly) ||
     a.length>AA.maxAnnual ||
     q.length>AA.maxQuarterly
   ) {
@@ -434,15 +439,17 @@ function aaValidatePayload_(p,ticker) {
   }
 
   if (
-    typeof q[0].revenue!=='number' ||
-    typeof q[0].netIncome!=='number'
+    q.length &&
+    (typeof q[0].revenue!=='number' ||
+    typeof q[0].netIncome!=='number')
   ) {
     throw Error(
       'Latest SEC quarterly revenue/net income is incomplete.'
     );
   }
 
-  return {annual,quarter,a,q};
+  return {annual,quarter,a,q,annualOnly,
+    currency:annualOnly?p.reportingCurrency:'USD'};
 }
 
 /* =========================================================
@@ -492,7 +499,7 @@ function aaFetch_(ticker) {
 function aaStatusFormula_() {
   // Four-line SEC Data Status box: snapshot, last imported quarter,
   // earnings release and SEC filing dates, and import time.
-  return "=IF(OR('Quarterly Data'!Y2=\"\",UPPER(TRIM($B$2))<>UPPER(TRIM('Quarterly Data'!Y2))),\"⚠ SEC TICKER MISMATCH: \"&UPPER(TRIM($B$2))&\" | SEC data: \"&'Quarterly Data'!Y2&\" | Do not use valuations\",LET(d,LAMBDA(v,IFERROR(TEXT(IF(ISNUMBER(v),v,DATEVALUE(v)),\"m/d/yy\"),\"n/a\")),\"SEC snapshot: \"&'Quarterly Data'!Y2&\" | \"&COUNT('Financial Data'!A2:A1000)&\" annual years | \"&COUNT('Quarterly Data'!A2:A1000)&\" quarters\"&CHAR(10)&\"Last imported quarter: Q\"&'Quarterly Data'!B2&\" FY\"&'Quarterly Data'!A2&CHAR(10)&\"Released \"&d('Quarterly Data'!X2)&\" | SEC filed \"&d('Quarterly Data'!W2)&CHAR(10)&IF(ISNUMBER('Quarterly Data'!Z2),\"SEC imported \"&TEXT('Quarterly Data'!Z2,\"m/d/yy h:mm AM/PM\"),\"Refresh timestamp missing\")))";
+  return "=IF(OR('Quarterly Data'!Y2=\"\",UPPER(TRIM($B$2))<>UPPER(TRIM('Quarterly Data'!Y2))),\"⚠ SEC TICKER MISMATCH: \"&UPPER(TRIM($B$2))&\" | SEC data: \"&'Quarterly Data'!Y2&\" | Do not use valuations\",LET(d,LAMBDA(v,IFERROR(TEXT(IF(ISNUMBER(v),v,DATEVALUE(v)),\"m/d/yy\"),\"n/a\")),IF('Quarterly Data'!Z6=\"annual\",\"SEC snapshot: \"&'Quarterly Data'!Y2&\" | \"&COUNT('Financial Data'!A2:A1000)&\" annual years | no quarters\"&CHAR(10)&\"Latest fiscal year: FY\"&'Financial Data'!A2&\" (ended \"&d('Financial Data'!W2)&\")\"&CHAR(10)&\"Foreign filer: annual reports only, figures in \"&'Quarterly Data'!Z4&CHAR(10)&IF(ISNUMBER('Quarterly Data'!Z2),\"SEC imported \"&TEXT('Quarterly Data'!Z2,\"m/d/yy h:mm AM/PM\"),\"Refresh timestamp missing\"),\"SEC snapshot: \"&'Quarterly Data'!Y2&\" | \"&COUNT('Financial Data'!A2:A1000)&\" annual years | \"&COUNT('Quarterly Data'!A2:A1000)&\" quarters\"&CHAR(10)&\"Last imported quarter: Q\"&'Quarterly Data'!B2&\" FY\"&'Quarterly Data'!A2&CHAR(10)&\"Released \"&d('Quarterly Data'!X2)&\" | SEC filed \"&d('Quarterly Data'!W2)&CHAR(10)&IF(ISNUMBER('Quarterly Data'!Z2),\"SEC imported \"&TEXT('Quarterly Data'!Z2,\"m/d/yy h:mm AM/PM\"),\"Refresh timestamp missing\"))))";
 }
 
 /* =========================================================
@@ -500,17 +507,24 @@ function aaStatusFormula_() {
    ========================================================= */
 
 function aaHeaderNotes_(dashboard,p) {
-  const first = p.quarterlyFinancials[0];
+  const annualOnly = !p.quarterlyFinancials.length;
+  const first = annualOnly ? p.annualFinancials[0] : p.quarterlyFinancials[0];
 
-  const last = p.quarterlyFinancials[
+  const last = annualOnly ? first : p.quarterlyFinancials[
     Math.min(3,p.quarterlyFinancials.length-1)
   ];
 
   const context =
-    'Latest available SEC quarterly records: '+
-    last.fiscalPeriodEnd+' to '+
-    first.fiscalPeriodEnd+
-    '. Company: '+p.companyName+
+    (annualOnly
+      ? 'ANNUAL-ONLY COMPANY: '+p.companyName+' files annual '+
+        (p.annualReportForm||'20-F')+' reports with the SEC and no quarterly '+
+        '10-Qs, so Quarterly Data is empty. Latest SEC fiscal year: FY'+
+        first.fiscalYear+' (ended '+first.fiscalPeriodEnd+'), figures in '+
+        p.reportingCurrency+'. '
+      : 'Latest available SEC quarterly records: '+
+        last.fiscalPeriodEnd+' to '+
+        first.fiscalPeriodEnd+'. ')+
+    'Company: '+p.companyName+
     ' ('+p.ticker+'). '+
     'Sources: SEC EDGAR via Cloudflare Worker. '+
     'Shorter history is normal for newer issuers; incomplete TTM and '+
@@ -584,6 +598,9 @@ function aaWriteRows_(sheet,fields,records,isQuarter) {
       .clearContent();
   }
 
+  // Annual-only companies have no quarterly rows.
+  if (!records.length) return;
+
   sheet.getRange(2,1,records.length,fields.length)
     .setValues(records);
 
@@ -636,7 +653,8 @@ function testWorkerConnection() {
     schema:p.schemaVersion,
     annual:v.annual.length,
     quarterly:v.quarter.length,
-    latestQuarter:p.quarterlyFinancials[0].fiscalPeriodEnd
+    latestQuarter:p.quarterlyFinancials.length
+      ? p.quarterlyFinancials[0].fiscalPeriodEnd : null
   };
 }
 
@@ -839,7 +857,8 @@ function refreshStockAnalyzer() {
 
     const oldQ = Math.max(
       q.getLastRow()-1,
-      verified.quarter.length
+      verified.quarter.length,
+      1
     );
 
     const previousAnnual = a
@@ -855,6 +874,10 @@ function refreshStockAnalyzer() {
 
     const previousZ2 = q
       .getRange('Z2').getValue();
+
+    // Z3:Z6 = reportingCurrency / dataBasis labels and values.
+    const previousBasis = q
+      .getRange('Z3:Z6').getValues();
 
     const previousName = d
       .getRange(AA.companyCell).getValue();
@@ -895,6 +918,17 @@ function refreshStockAnalyzer() {
         verified.quarter,
         true
       );
+
+      // Annual-only (foreign) companies have no quarterly rows; Y2 still
+      // records whose data this is, so ticker checks keep working.
+      if (verified.annualOnly) {
+        q.getRange('Y2').setValue(ticker);
+      }
+
+      q.getRange('Z3:Z6').setValues([
+        ['reportingCurrency'],[verified.currency],
+        ['dataBasis'],[verified.annualOnly?'annual':'quarterly']
+      ]);
 
       q.getRange('Z1').setValue('lastImportedAt');
 
@@ -954,6 +988,9 @@ function refreshStockAnalyzer() {
           q.getRange('Z2')
             .setValue(previousZ2);
 
+          q.getRange('Z3:Z6')
+            .setValues(previousBasis);
+
           d.getRange(AA.companyCell)
             .setValue(previousName);
 
@@ -986,7 +1023,8 @@ function refreshStockAnalyzer() {
     ss.toast(
       'Imported '+verified.annual.length+
       ' annual years and '+verified.quarter.length+
-      ' quarters for '+ticker,
+      ' quarters for '+ticker+
+      (verified.annualOnly?' (annual reports only, '+verified.currency+')':''),
       'Stock Analyzer',
       8
     );

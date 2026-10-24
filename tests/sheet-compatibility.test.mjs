@@ -162,3 +162,40 @@ test('a foreign filer gets a plain reason, and the script shows a failed import 
   assert.match(scriptSource, /aaShowFailedImport_\(ss,String\(err\.message\|\|err\)\)/);
   assert.match(scriptSource, /SEC IMPORT FAILED for/);
 });
+
+test('an annual-only foreign company passes the refresh validation; the script records currency and basis', async () => {
+  const fy = (y, v, accn) => ({ start: `${y}-01-01`, end: `${y}-12-31`, val: v, form: '20-F', accn, filed: `${y + 1}-03-01` });
+  const ifrs = { cik: 1234567, entityName: 'Example NV', facts: { 'ifrs-full': {
+    Revenue: unit('EUR', [fy(2025, 32e9, 'a-2026'), fy(2024, 28e9, 'a-2026')]),
+    ProfitLossAttributableToOwnersOfParent: unit('EUR', [fy(2025, 9e9, 'a-2026'), fy(2024, 7e9, 'a-2026')])
+  } } };
+  const sub = { ...details, filings: { recent: { form: ['6-K', '20-F'] } } };
+  const original = globalThis.fetch;
+  globalThis.fetch = async url => {
+    url = String(url);
+    if (url.includes('company_tickers.json')) return Response.json(company);
+    if (url.includes('/companyfacts/')) return Response.json(ifrs);
+    if (url.includes('/submissions/')) return Response.json(sub);
+    throw Error('Unexpected SEC fetch ' + url);
+  };
+  let payload;
+  try { payload = await (await worker.fetch(new Request('https://example.test/?ticker=TEST'))).json(); }
+  finally { globalThis.fetch = original; }
+  assert.equal(payload.success, true, JSON.stringify(payload).slice(0, 300));
+  const v = gs.aaValidatePayload_(payload, 'TEST');
+  assert.equal(v.annualOnly, true);
+  assert.equal(v.currency, 'EUR');
+  assert.equal(v.quarter.length, 0);
+  assert.equal(v.annual.length, 2);
+  // Without a currency, annual-only data is refused rather than mislabelled.
+  assert.throws(() => gs.aaValidatePayload_({ ...payload, reportingCurrency: '' }, 'TEST'), /reporting currency/);
+  // A US payload still needs quarters.
+  assert.throws(() => gs.aaValidatePayload_({ ...payload, dataBasis: 'quarterly' }, 'TEST'), /incomplete/);
+  // The refresh writes Y2 (whose data) and Z3:Z6; the status box has an annual branch.
+  assert.match(scriptSource, /if \(verified\.annualOnly\) \{\s*q\.getRange\('Y2'\)\.setValue\(ticker\);/);
+  assert.match(scriptSource, /\['reportingCurrency'\],\[verified\.currency\],\s*\['dataBasis'\]/);
+  const f = gs.aaStatusFormula_();
+  assert.ok(f.includes("'Quarterly Data'!Z6=\"annual\""));
+  assert.ok(f.includes('Foreign filer: annual reports only, figures in '));
+  for (const s of ['Last imported quarter: Q', 'SEC imported ']) assert.ok(f.includes(s), s);
+});
