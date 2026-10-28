@@ -146,6 +146,9 @@ export const TAGS = {
   // noncurrent line for others. Used only with corroboration.
   longTermDebtTotal: ['LongTermDebt'],
   debtCarrying: ['DebtInstrumentCarryingAmount'],
+  // Principal due within 12 months (debt footnote): the current portion
+  // when the balance-sheet line uses a company-specific tag (PayPal).
+  debtMaturity12m: ['LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths'],
   currentPortionLongTermDebt: [
     'LongTermDebtCurrent',
     'LongTermDebtAndCapitalLeaseObligationsCurrent',
@@ -165,8 +168,36 @@ export const TAGS = {
 const INSTANT = new Set([
   'stockholdersEquity','cash','totalAssets','totalLiabilities',
   'shortTermDebt','longTermDebt','currentPortionLongTermDebt','totalDebt',
-  'debtCurrent','otherShortTermBorrowings','longTermDebtTotal','debtCarrying'
+  'debtCurrent','otherShortTermBorrowings','longTermDebtTotal','debtCarrying',
+  'debtMaturity12m'
 ]);
+
+/*
+ * Total debt still unknown after secTotalDebt (fills a null only):
+ * 1. the same balance-sheet date as shown in a later 10-Q/10-K (PayPal's
+ *    year-end current debt is tagged only in the next year's 10-Qs);
+ * 2. noncurrent debt + principal due within 12 months from the debt
+ *    footnote, when no current-debt line of any standard kind exists for
+ *    that date (PayPal tags its current notes with its own label).
+ */
+const ANY_FORMS=['10-Q','10-Q/A','10-K','10-K/A'];
+function fillUnknownDebt(r,map,end,get,context) {
+  if (r.totalDebt!==null) return;
+  const getAny=k=>get(k) ?? val(map[k]||[],end,'instant',ANY_FORMS);
+  const later=debt(getAny,context);
+  if (later!==null) {
+    r.totalDebt=later;
+    r.debtEvidence={status:'balance-from-later-filing'};
+    return;
+  }
+  const long=getAny('longTermDebt'), due=getAny('debtMaturity12m');
+  const currentLines=['shortTermDebt','currentPortionLongTermDebt','debtCurrent','otherShortTermBorrowings']
+    .every(k=>getAny(k)===null);
+  if (n(long)!==null && long>=0 && n(due)!==null && due>=0 && currentLines) {
+    r.totalDebt=long+due;
+    r.debtEvidence={status:'noncurrent-plus-principal-due-12-months'};
+  }
+}
 
 const UNITS = {
   basicEPS: 'USD/shares',
@@ -296,6 +327,13 @@ const isBank = map =>
   (map.revenue||[]).some(f=>f.tag==='RevenuesNetOfInterestExpense');
 
 function decorate(r,older,bank=false) {
+  // No pre-tax income tag (PayPal since 2019): net income + income tax,
+  // the identity behind the income statement (ignores noncontrolling
+  // interests, small for most companies). Fills a missing value only.
+  if (n(r.incomeBeforeTax)===null && n(r.netIncome)!==null && n(r.incomeTaxExpense)!==null) {
+    r.incomeBeforeTax = r.netIncome + r.incomeTaxExpense;
+    r.incomeBeforeTaxBasis = 'netIncome+incomeTax';
+  }
   // No reported operating income: use EBIT (pretax income + interest
   // expense), the usual substitute. Not for banks, whose interest expense
   // is their cost of goods and whose ROIC is not meaningful.
@@ -391,6 +429,7 @@ export function buildAnnual(map,ends,cik=null,forms=['10-K','10-K/A'],debtFree=n
 
     const debtContext={cik,periodEnd:end,form:forms[0],noCurrentDebtNearby:noCurrentDebtNear(map,end)};
     r.totalDebt = debt(get,debtContext);
+    if (forms.includes('10-K')) fillUnknownDebt(r,map,end,get,debtContext);
     if (r.totalDebt===null && debtFree?.(end,forms,map.totalAssets)) {
       r.totalDebt = 0;   // debt-free: see debt-free.js
       r.debtEvidence = {status:'no-debt-in-filing'};
@@ -577,6 +616,7 @@ function buildQuarterly(map,ends,cik=null,debtFree=null) {
 
       const debtContext={cik,periodEnd:end,form:isQ4?'10-K':'10-Q',noCurrentDebtNearby:noCurrentDebtNear(map,end)};
       r.totalDebt = debt(get,debtContext);
+      fillUnknownDebt(r,map,end,get,debtContext);
       if (r.totalDebt===null && debtFree?.(end,forms,map.totalAssets)) {
         r.totalDebt = 0;   // debt-free: see debt-free.js
         r.debtEvidence = {status:'no-debt-in-filing'};

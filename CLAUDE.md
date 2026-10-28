@@ -122,6 +122,16 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 - Sheets caches IMPORTDATA by URL: when a feed's output changes without a
   new import, bump its `&release=` tag.
 
+## Filling unknown ROIC inputs (fills nulls only)
+
+- Total debt 0 when the period's own filing shows no debt of any kind
+  (`src/debt-free.js`, The Trade Desk).
+- Total debt from the same date in a later 10-Q/10-K, else noncurrent debt
+  + principal due within 12 months when no standard current-debt line
+  exists (`fillUnknownDebt`, PayPal).
+- Pre-tax income = net income + income tax when no pre-tax tag is filed
+  (`decorate`, PayPal since 2019).
+
 ## Foreign companies (annual mode)
 
 - Issuers that file 20-F/40-F and no 10-K/10-Q (ASML, TSMC, Novo Nordisk,
