@@ -29,7 +29,8 @@ jobs:
           TICKERS: ${{ github.event.inputs.tickers }}
         run: node .github/scripts/compare-with-main.mjs
       - name: Post the report on the pull request
-        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file compare-report.md
+          PR: ${{ github.event.pull_request.number }}
+        # A manual run posts on the open pull request of its branch, if any.
+        run: gh pr comment "${PR:-$GITHUB_REF_NAME}" --repo ${{ github.repository }} --body-file compare-report.md || true
