@@ -2,7 +2,7 @@ name: Compare worker values with main
 on:
   pull_request:
     branches: [main]
-    paths: ['src/**']
+    paths: ['src/**', '.github/scripts/compare-with-main.mjs', '.github/workflows/compare-with-main.yml']
   workflow_dispatch:
     inputs:
       tickers:
