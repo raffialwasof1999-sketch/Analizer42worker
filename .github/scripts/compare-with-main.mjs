@@ -41,7 +41,7 @@ function diff(rowsA,rowsB,label){
   }
   return out;
 }
-const lines=[], summary=[];
+const lines=[], summary=[], filledLines=[];
 let flagged=0;
 for(const t of TICKERS){
   let a,b;
@@ -58,12 +58,17 @@ for(const t of TICKERS){
   if(bad) flagged++;
   summary.push(`| ${t} | ${bad?'⚠ check':'ok'} | ${n('filled')} | ${n('changed')} | ${n('lost')} | ${n('rows')} |`);
   for(const x of d) for(const k of ['changed','lost','rows']) for(const s of x[k].slice(0,15)) lines.push(`${t} ${k}: ${s}`);
+  // Filled values, grouped by field, with the newest examples to sanity-check.
+  const byField={};
+  for(const x of d) for(const s of x.filled){ const f=s.split(' ')[2].replace(':',''); (byField[f]=byField[f]||[]).push(s); }
+  for(const [f,list] of Object.entries(byField)) filledLines.push(`${t} ${f} x${list.length}: ${list.slice(0,2).join(' | ')}`);
   await sleep(500);
 }
-const report=[`### Worker values: this branch vs main (${TICKERS.length} tickers, same live SEC data)`,'',
+const report=[`### Worker values: this branch vs ${process.env.BASE_REF||"main"} (${TICKERS.length} tickers, same live SEC data)`,'',
   flagged?`**${flagged} ticker(s) have changed or lost values; details below.**`:'**No value changed or lost; only blanks filled.**','',
   '| Ticker | Result | Filled | Changed | Lost | Rows ± |','|---|---|---|---|---|---|',...summary,'',
-  lines.length?'<details><summary>Changed / lost / row differences</summary>\n\n```\n'+lines.slice(0,400).join('\n')+'\n```\n</details>':''].join('\n');
+  lines.length?'<details><summary>Changed / lost / row differences</summary>\n\n```\n'+lines.slice(0,400).join('\n')+'\n```\n</details>':'',
+  filledLines.length?'<details><summary>Filled values by field (examples)</summary>\n\n```\n'+filledLines.slice(0,300).join('\n')+'\n```\n</details>':''].join('\n');
 writeFileSync('compare-report.md',report);
 if(process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,report+'\n');
 console.log(report);
