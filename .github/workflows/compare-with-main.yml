@@ -1,0 +1,35 @@
+name: Compare worker values with main
+on:
+  pull_request:
+    branches: [main]
+    paths: ['src/**']
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: Comma-separated tickers (blank for the default mix)
+        required: false
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: base
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run main's and this branch's worker on the same SEC data
+        env:
+          TICKERS: ${{ github.event.inputs.tickers }}
+        run: node .github/scripts/compare-with-main.mjs
+      - name: Post the report on the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file compare-report.md
