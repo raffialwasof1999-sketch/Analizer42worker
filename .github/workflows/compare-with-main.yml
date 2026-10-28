@@ -8,6 +8,9 @@ on:
       tickers:
         description: Comma-separated tickers (blank for the default mix)
         required: false
+      base:
+        description: Commit or branch to compare against (default main)
+        required: false
 permissions:
   contents: read
   pull-requests: write
@@ -19,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.inputs.base || 'main' }}
           path: base
       - uses: actions/setup-node@v4
         with:
@@ -27,6 +30,7 @@ jobs:
       - name: Run main's and this branch's worker on the same SEC data
         env:
           TICKERS: ${{ github.event.inputs.tickers }}
+          BASE_REF: ${{ github.event.inputs.base || 'main' }}
         run: node .github/scripts/compare-with-main.mjs
       - name: Post the report on the pull request
         env:

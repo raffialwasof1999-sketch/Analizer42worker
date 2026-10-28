@@ -64,7 +64,7 @@ for(const t of TICKERS){
   for(const [f,list] of Object.entries(byField)) filledLines.push(`${t} ${f} x${list.length}: ${list.slice(0,2).join(' | ')}`);
   await sleep(500);
 }
-const report=[`### Worker values: this branch vs main (${TICKERS.length} tickers, same live SEC data)`,'',
+const report=[`### Worker values: this branch vs ${process.env.BASE_REF||"main"} (${TICKERS.length} tickers, same live SEC data)`,'',
   flagged?`**${flagged} ticker(s) have changed or lost values; details below.**`:'**No value changed or lost; only blanks filled.**','',
   '| Ticker | Result | Filled | Changed | Lost | Rows ± |','|---|---|---|---|---|---|',...summary,'',
   lines.length?'<details><summary>Changed / lost / row differences</summary>\n\n```\n'+lines.slice(0,400).join('\n')+'\n```\n</details>':'',
