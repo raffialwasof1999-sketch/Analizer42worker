@@ -11,8 +11,10 @@ checked.
 | Apps Script bound to the sheet | `apps-script/` | PR → merge → `.github/workflows/apps-script-deploy.yml` uploads it (backup first, verified after). Never edit in Google's editor: the next deploy refuses to overwrite an out-of-band edit |
 | Google Sheet "Active Analyzer 10" (`1ryLKPxrVoxSVhac7HpVR_l8ARSjn0E65DhTz082PlXY`) | Google Sheets connector | Direct edits; verify after a refresh |
 
-Merging is done by the owner; this session cannot merge. Whenever asking the
-owner to merge, give the full PR link.
+Assistants may merge pull requests when explicitly asked by the repository
+owner, after the relevant checks pass and subject to GitHub permissions and
+branch protections. Otherwise, leave the merge to the owner and provide the
+full PR link.
 
 ## What every refresh (and ticker change) overwrites
 
