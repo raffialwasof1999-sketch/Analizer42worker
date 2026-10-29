@@ -19,7 +19,7 @@
  * A23      RESULTS
  * E25:G26  Maximum purchase prices
  * E27:G28  Projected annual returns
- * H4:J22   Additional metrics
+ * H4:L27  Additional metrics (rows may be inserted/reordered)
  *
  * Annual SEC data: Financial Data!A:AE
  * Quarterly SEC data: Quarterly Data!A:Y
@@ -86,10 +86,9 @@ const AA_LABELS = {
   F7:'Latest Reported Quarter and Year'
 };
 
-// The metrics table (H2:J23: headings, metric names and their formulas) is
-// not checked: refreshes never write to columns H, I or J, so its headings
-// and names are free to change in the sheet (move a metric by moving its
-// H and I cells together).
+// Refresh never writes metric cells in H:L. The calculated Dividend Yield
+// label in H locates its value in I for the projected-return safety check.
+// Move each complete H:L metric row together; other names are unrestricted.
 
 /* =========================================================
    SPREADSHEET MENU
@@ -213,6 +212,8 @@ function aaCheckDashboard_(d,a,q) {
     );
   }
 
+  const dividendYield = aaDividendYieldReference_(d);
+
   for (const col of ['E','F','G']) {
     const refs = [
       {
@@ -238,7 +239,7 @@ function aaCheckDashboard_(d,a,q) {
       },
       {
         cell:col+'28',
-        items:[col+'27','$I$16']
+        items:[col+'27',dividendYield]
       }
     ];
 
@@ -269,6 +270,21 @@ function aaCheckDashboard_(d,a,q) {
       'Quarterly Data!Z1 already contains an unrelated field.'
     );
   }
+}
+
+/**
+ * Locate dividend yield by label so moving metric rows preserves validation.
+ * Move the label and calculated value together in columns H:I.
+ */
+function aaDividendYieldReference_(d) {
+  const labels = d.getRange(4,8,Math.max(1,d.getLastRow()-3),1).getDisplayValues();
+  const matches = labels.flatMap((r,i) =>
+    /^Dividend Yield \((?:TTM|Latest FY)\)$/.test(String(r[0]).trim()) ? [i+4] : []
+  );
+  if (matches.length!==1) {
+    throw Error('Expected exactly one calculated Dividend Yield metric in Analyzer column H.');
+  }
+  return '$I$'+matches[0];
 }
 
 /* =========================================================
@@ -566,7 +582,7 @@ function aaHeaderNotes_(dashboard,p) {
       'This is NOT the weighted-average diluted share count.\n'+context,
 
     F6:
-      "LATEST DILUTED SHARE COUNT\nG6 reads Quarterly Data!T2, the latest quarter's SEC weighted-average diluted share count. The SEC worker supplies it for every quarter, including a fiscal Q4 (derived from the full-year and Q1-Q3 counts, since 10-Ks report only a full-year figure).\n\nBackstop: if T2 is still blank for a fiscal Q4, G6 derives it as 4 x the full-year diluted count (Financial Data!E) minus the Q1-Q3 counts (Quarterly Data!T3:T5), shown only if within 10% of Q3's; otherwise a dash.\n\nUsed by P/S (I6) and Price / FCF (I14).\n"+context,
+      "LATEST DILUTED SHARE COUNT\nG6 reads Quarterly Data!T2, the latest quarter's SEC weighted-average diluted share count. The SEC worker supplies it for every quarter, including a fiscal Q4 (derived from the full-year and Q1-Q3 counts, since 10-Ks report only a full-year figure).\n\nBackstop: if T2 is still blank for a fiscal Q4, G6 derives it as 4 x the full-year diluted count (Financial Data!E) minus the Q1-Q3 counts (Quarterly Data!T3:T5), shown only if within 10% of Q3's; otherwise a dash.\n\nUsed by the calculated P/S and Price / FCF metrics. Purchase-price calculations use this count when Use Diluted Shares (B21) is checked; otherwise they use regular shares outstanding (G5).\n"+context,
 
     F7:
       'LATEST REPORTED FISCAL QUARTER\n'+
