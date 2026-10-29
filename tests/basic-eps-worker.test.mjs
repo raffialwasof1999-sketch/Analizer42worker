@@ -66,6 +66,29 @@ test('Worker exports reported basic EPS in appended schema without changing dilu
    assert.deepEqual(Object.keys(data.quarterlyFinancials[0]).slice(-4),['basicEPS','fcfPerShare','netAcquisitions','acquisitionsBasis']);
  }finally{globalThis.fetch=original;}
 });
+test('verified dividend nonpayment reaches imported numeric columns without changing their schema',async()=>{
+ const original=globalThis.fetch;
+ const sub=structuredClone(details);
+ sub.filings.recent.primaryDocument=['report.htm','q3.htm','q2.htm','q1.htm'];
+ let documents=0;
+ globalThis.fetch=async url=>{
+   url=String(url);
+   if(url.includes('company_tickers.json'))return Response.json(company);
+   if(url.includes('/companyfacts/'))return Response.json(facts);
+   if(url.includes('/submissions/'))return Response.json(sub);
+   if(url.endsWith('/report.htm')) {documents++;return new Response('<h2>Dividend Policy</h2><p>We have never declared or paid any cash dividends on our capital stock.</p>');}
+   throw Error('Unexpected SEC fetch '+url);
+ };
+ try{
+   const data=await(await worker.fetch(new Request('https://example.test/?ticker=TEST&dividendTest=1'))).json();
+   assert.equal(data.success,true,JSON.stringify(data));
+   assert.equal(documents,1);
+   assert.ok(data.quarterlyFinancials.slice(0,4).every(r=>r.dividendsPaid===0 && r.dividendsPerShare===0));
+   assert.equal(data.dividendVerification.quarterly[0].dividendsPerShare.status,'confirmed-zero');
+   assert.equal(data.dividendVerification.quarterly[0].dividendsPerShare.accession,'0001234567-25-000001');
+   assert.equal(Object.keys(data.annualFinancials[0]).at(-1),'basicEPS');
+ }finally{globalThis.fetch=original;}
+});
 test('basic EPS split scaling preserves diluted EPS and cash flows',()=>{
  const row={fiscalPeriodEnd:'2019-12-31',basicEPS:8.2,dilutedEPS:8,
    dilutedShares:100,netIncome:800};
@@ -117,3 +140,4 @@ test('CSV basic EPS exposes sparse rows in stable annual and quarterly order',as
    assert.equal(invalid.status,400);
  }finally{globalThis.fetch=original;}
 });
+
