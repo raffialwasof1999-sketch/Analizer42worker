@@ -42,11 +42,13 @@ labels next to cells the refresh reads or writes:
 - B6 must stay a checkbox.
 - Safety net for the results (not written by the refresh, kept by choice):
   A25:A28 label wording, and E25:G28 formulas must keep referencing their
-  inputs (E15/E16/E18/E20, $G$2, $G$6, $B$3, $E$3, $I$16...).
+  inputs (E15/E16/E18/E20, $G$2, $G$6 (also within the B21 share selector), $B$3, $E$3, and the calculated dividend-yield reference...).
 - Data-tab header rows must match the field lists; Quarterly Data Z1 is
   `lastImportedAt` or empty.
 
-Renaming or moving any of these needs the matching script change in the
+The dividend-yield reference is resolved by its unique `Dividend Yield (TTM)` or `Dividend Yield (Latest FY)` label in column H; its calculated value must remain next to it in column I. Move complete H:L metric rows together. This avoids a fixed dividend-yield row in the refresh validator.
+
+Renaming or moving any of the other checked cells needs the matching script change in the
 same PR. Nothing else is checked: the history table and assumptions
 (A3, A12:G20, B13:D13, E24:G24) and the metrics table (H2:J23) can be
 renamed or edited in the sheet. To reorder metrics, cut and paste each H
