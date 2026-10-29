@@ -1,0 +1,21 @@
+name: Inspect Netflix dividend evidence (read-only)
+on:
+  pull_request:
+    paths: ['.github/workflows/netflix-dividend-inspection.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Read production verification diagnostics
+        run: |
+          curl --fail --silent --show-error --max-time 150 'https://analyzer42-sec.raffialwasof-1999.workers.dev/?ticker=NFLX' -o /tmp/nflx-dividend.json
+          node <<'JS'
+          const fs=require('node:fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/nflx-dividend.json','utf8'));
+          if(!d.success) throw Error(d.error||'Production read failed');
+          console.log(JSON.stringify({ticker:d.ticker,verification:d.dividendVerification,
+            latestQuarters:d.quarterlyFinancials.slice(0,4).map(r=>({period:r.fiscalPeriodEnd,dividendsPaid:r.dividendsPaid,dividendsPerShare:r.dividendsPerShare}))},null,2));
+          JS
