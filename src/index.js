@@ -15,6 +15,7 @@ import { blankReasons, blankReasonsCsv } from './blank-reasons.js';
 import { fcfPerShare } from './fcf-per-share.js';
 import { debtFreeEvidence } from './debt-free.js';
 import { normalizeDividendsPerShare } from './dividend-split-basis.js';
+import { verifyDividends } from './sec-dividend-status.js';
 import { enforceQuarterlyEPSConsistency } from './eps-consistency.js';
 import { FOREIGN_ANNUAL_FORMS, IFRS_TAGS, isForeignAnnualFiler, annualFormOf, foreignReportingBasis, reportBasis, composedIfrsDebt, coverSharesOutstanding } from './foreign-annual.js';
 import { fullQuarterFilingHistory, assignQuarterDates, earningsDateCoverage, fillFilingDatesFromFacts } from './sec-earnings-dates.js';
@@ -1107,6 +1108,8 @@ async function handleRequest(request) {
             'No usable SEC annual financial periods found.');
         }
         validateOutput(foreign.rows,[],true);
+        const dividendVerification=await verifyDividends(foreign.rows,[],sub,cik,limitedSecDocument);
+        foreign.rows=dividendVerification.annual;
         const form=annualFormOf(sub);
         const index=(sub.tickers||[]).findIndex(t=>String(t).toUpperCase()===ticker);
         const data={
@@ -1125,6 +1128,7 @@ async function handleRequest(request) {
           sharesOutstandingAsOf:foreign.shares.asOf,
           // Fiscal years whose dividendsPerShare = dividends paid / diluted shares.
           dividendsPerShareFromPaid:foreign.dpsFromPaid,
+          dividendVerification:{...dividendVerification.evidence,checks:dividendVerification.checks,rule:'Zero only with explicit SEC evidence; missing remains unknown.'},
           blankReasons:[{metric:'Quarterly figures',reason:
             `${name} files annual ${form} reports with the SEC (no quarterly 10-Q data), `+
             `with figures in ${foreign.basis.currency} under ${foreign.basis.standard}. `+
@@ -1354,7 +1358,7 @@ async function handleRequest(request) {
       const consistent=basisGraph.conflicts.length===0;
       const autoAnnual=splitDetected && consistent;
       const autoQuarterly=autoAnnual && quarterlyNormalized.complete;
-      const finalAnnual=autoAnnual?annualNormalized.rows:annualFinancials;
+      let finalAnnual=autoAnnual?annualNormalized.rows:annualFinancials;
       const annualSharesProof=(row)=>{
         const quarter=quarters.find(q=>q.fiscalPeriodEnd===row.fiscalPeriodEnd);
         const fiscalAnnual=annualFinancials.find(a=>a.fiscalYear===row.fiscalYear) ||
@@ -1387,13 +1391,16 @@ async function handleRequest(request) {
         estimatedBasicPeriods,q4DilutedEPSEvidence.findings.map(f=>f.fiscalPeriodEnd)
       );
       const epsConsistency=enforceQuarterlyEPSConsistency(reportedEPS.rows,finalAnnual);
-      const finalQuarterly=epsConsistency.rows;
+      let finalQuarterly=epsConsistency.rows;
       // Split-adjusted FCF per diluted share for the sheet's 5-year P/FCF.
       const fcfShares=fcfPerShare(finalQuarterly);
       finalQuarterly.forEach((row,i)=>{ row.fcfPerShare=fcfShares.values[i]; });
       // Dividends per share on today's split basis (proven splits only).
       const dps=normalizeDividendsPerShare(finalQuarterly,fcfShares.factors);
       finalQuarterly.forEach((row,i)=>{ row.dividendsPerShare=dps.values[i]; });
+      const dividendVerification=await verifyDividends(finalAnnual,finalQuarterly,sub,cik,limitedSecDocument);
+      finalAnnual=dividendVerification.annual;
+      finalQuarterly=dividendVerification.quarterly;
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
       // Script writes only the older 31/26 columns, so basic EPS needs an
       // independent column feed. 'NA' preserves row positions in sparse data.
@@ -1491,6 +1498,7 @@ async function handleRequest(request) {
         reportingCurrency:'USD',
         annualFinancials:finalAnnual,
         quarterlyFinancials:finalQuarterly,
+        dividendVerification:{...dividendVerification.evidence,checks:dividendVerification.checks,rule:'Zero only with explicit SEC evidence; missing remains unknown.'},
         // Additive source-input snapshots for future metrics without
         // changing the existing 32/25-column Google Sheets import.
         sourceFactsSummary:secSourceSummary(facts,TAGS),
@@ -1541,5 +1549,6 @@ async function handleRequest(request) {
       },502);
     }
 }
+
 
 

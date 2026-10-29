@@ -131,6 +131,16 @@ export function blankReasons(quarters,context={}){
   // Enterprise value
   add('Enterprise Value',first(why('totalDebt',1),why('cash',1)));
 
+  // Missing dividend tags do not establish that a company paid nothing.
+  for (const [metric,field] of [['Dividend Yield (TTM)','dividendsPerShare'],['Dividend Per Share (TTM)','dividendsPerShare'],['Dividends Paid (TTM)','dividendsPaid']]) {
+    const window=q.slice(0,4);
+    const unknown=window.filter(r=>!finite(r[field])).length;
+    if(window.length<4) add(metric,`SEC data covers only ${window.length} of the four quarters needed.`);
+    else if(gap(4)) add(metric,gap(4));
+    else if(unknown) add(metric,`Dividend data is unverified for ${unknown} of the latest four quarters. Missing SEC values are not assumed to be zero; the metric stays unavailable.`);
+    else if(window.every(r=>r[field]===0)) add(metric,'Shown as zero: SEC numeric data or explicit filing statements confirm no dividends for all four quarters. This is historical evidence, not a forecast of future dividends.');
+  }
+
   // Historical performance: sums over consecutive quarters, as the sheet
   // computes them (growth compares the latest 4 quarters with 4 quarters
   // 1, 5 or 10 years earlier).
@@ -170,3 +180,4 @@ export function blankReasonsCsv(reasons,ticker){
   if(!reasons.length)rows.push(['All metrics',`Every SEC input is available for ${ticker}.`]);
   return rows.map(r=>r.map(cell).join(',')).join('\n')+'\n';
 }
+
