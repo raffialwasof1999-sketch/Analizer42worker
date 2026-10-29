@@ -42,11 +42,11 @@ labels next to cells the refresh reads or writes:
 - B6 must stay a checkbox.
 - Safety net for the results (not written by the refresh, kept by choice):
   A25:A28 label wording, and E25:G28 formulas must keep referencing their
-  inputs (E15/E16/E18/E20, $G$2, $G$6 (also within the B21 share selector), $B$3, $E$3, and the calculated dividend-yield reference...).
+  inputs (E15/E16/E18/E20, $G$2, $G$6 (also within the B22 share selector), $B$3, $E$3, and the calculated dividend reference...).
 - Data-tab header rows must match the field lists; Quarterly Data Z1 is
   `lastImportedAt` or empty.
 
-The dividend-yield reference is resolved by its unique `Dividend Yield (TTM)` or `Dividend Yield (Latest FY)` label in column H; its calculated value must remain next to it in column I. Move complete H:L metric rows together. This avoids a fixed dividend-yield row in the refresh validator.
+The legacy dividend-yield reference is resolved by its unique `Dividend Yield (TTM)` or `Dividend Yield (Latest FY)` label in column H; its calculated value must remain next to it in column I. Move complete H:L metric rows together. This avoids a fixed dividend-yield row in the refresh validator.
 
 Renaming or moving any of the other checked cells needs the matching script change in the
 same PR. Nothing else is checked: the history table and assumptions
@@ -189,3 +189,9 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 4. After merging or editing: refresh the sheet **and** change the ticker
    once (then back), and confirm the change is still there.
 
+
+## Fixed dividend dollars per share projection
+
+E28:G28 can use RATE(years, annual dividend per share, -current price, terminal share price, 0, projected price CAGR). The annual dividend is held at the imported trailing per-share amount; cash is received at each year end without reinvestment. The terminal price is current price times (1 + scenario price CAGR)^years. Missing dividends remain unknown; zero dividends reduce exactly to the price-only return. Negative dividends, nonpositive price/years and invalid price CAGR return a dash.
+
+During rollout the validator accepts both the existing yield-addition formula and the fixed-dollar RATE formula. For RATE it requires the unique `Dividend Per Share (TTM)` or `Dividend Per Share (Latest FY)` label in H and adjacent value in I, plus current price and years. Deploy this validator before applying the reviewed sheet formulas in `docs/fixed-dividend-projection.md`. No dividend evidence/importer logic is changed. The sheet update is separate and must be read back; merging this PR does not by itself alter dashboard formulas.
