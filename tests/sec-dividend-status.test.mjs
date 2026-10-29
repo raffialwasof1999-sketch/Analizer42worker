@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {dividendStatements,applyDividendEvidence,verifyDividends} from '../src/sec-dividend-status.js';
+import {dividendStatements,dividendTableZeros,applyDividendEvidence,verifyDividends} from '../src/sec-dividend-status.js';
 import {blankReasons} from '../src/blank-reasons.js';
 const report={end:'2026-09-30',form:'10-Q'};
 const never='<h2>Dividend Policy</h2><p>We have never declared or paid any cash dividends on our capital stock.</p>';
@@ -83,4 +83,62 @@ test('blank reasons distinguish unknown from confirmed four-quarter zero',()=>{
   assert.match(unknown.reason,/unverified/);
   const zero=blankReasons(applyDividendEvidence(rows(),proof())).find(r=>r.metric==='Dividend Yield (TTM)');
   assert.match(zero.reason,/Shown as zero/);
+});
+
+const inline=({from='2026-01-01',through='2026-09-30',identifier='0001234567',segment='',value='0',nil='',tag='us-gaap:CommonStockDividendsPerShareDeclared',unit='perShare',format=''}={})=>`
+ <ix:header><xbrli:context id="duration"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">${identifier}</xbrli:identifier>${segment}</xbrli:entity>
+ <xbrli:period><xbrli:startDate>${from}</xbrli:startDate><xbrli:endDate>${through}</xbrli:endDate></xbrli:period></xbrli:context>
+ <xbrli:unit id="perShare"><xbrli:divide><xbrli:unitNumerator><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unitNumerator><xbrli:unitDenominator><xbrli:measure>xbrli:shares</xbrli:measure></xbrli:unitDenominator></xbrli:divide></xbrli:unit>
+ <xbrli:unit id="currency"><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit></ix:header>
+ <table><tr><td>Dividends</td><td><ix:nonFraction name="${tag}" contextRef="duration" unitRef="${unit}" ${nil} ${format}>${value}</ix:nonFraction></td></tr></table>`;
+test('an explicit tagged nine-month DPS zero covers the three included quarters only',()=>{
+ const proofs=dividendTableZeros(inline(),report,'1234567');
+ assert.equal(proofs.length,1);
+ const result=applyDividendEvidence(rows(),proofs);
+ assert.deepEqual(result.map(r=>r.dividendsPerShare),[0,0,0,null]);
+ assert.ok(result.every(r=>r.dividendsPaid===null));
+});
+test('cash-paid table zero does not substitute for declared DPS',()=>{
+ const proofs=dividendTableZeros(inline({tag:'us-gaap:PaymentsOfDividends',unit:'currency'}),report,'1234567');
+ const result=applyDividendEvidence(rows(),proofs);
+ assert.equal(result[0].dividendsPaid,0);assert.equal(result[0].dividendsPerShare,null);
+});
+test('nil, wrong issuer/unit, preferred stock, custom tags and empty cells are not zeros',()=>{
+ for(const opt of [{nil:'xsi:nil="true"'},{identifier:'9999999'},{unit:'currency'},{segment:'<xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:PreferredStockMember</xbrldi:explicitMember></xbrli:segment>'},{tag:'issuer:SpecialDividend'},{value:''},{value:'—'}])
+  assert.equal(dividendTableZeros(inline(opt),report,'1234567').length,0,JSON.stringify(opt));
+});
+test('dash counts as zero only with an explicit zero transformation',()=>{
+ assert.equal(dividendTableZeros(inline({value:'—',format:'format="ixt:zerodash"'}),report,'1234567').length,1);
+});
+test('future and shorter numeric periods cannot confirm an entire quarter',()=>{
+ assert.equal(dividendTableZeros(inline({through:'2026-12-31'}),report,'1234567').length,0);
+ const p=dividendTableZeros(inline({from:'2026-09-01'}),report,'1234567');
+ assert.equal(applyDividendEvidence(rows(),p)[0].dividendsPerShare,null);
+});
+test('conflicting positive inline amounts reject a zero for the same field and period',()=>{
+ const html=inline()+inline({value:'0.25'});
+ assert.equal(dividendTableZeros(html,report,'1234567').length,0);
+});
+test('exact-date numeric evidence supports non-calendar fiscal quarters',()=>{
+ const r=[{fiscalYear:2026,fiscalQuarter:3,fiscalPeriodEnd:'2026-09-26',dividendsPerShare:null},{fiscalYear:2026,fiscalQuarter:2,fiscalPeriodEnd:'2026-06-27',dividendsPerShare:null}];
+ const p=dividendTableZeros(inline({from:'2026-06-28',through:'2026-09-26'}),{end:'2026-09-26'},'1234567');
+ assert.equal(applyDividendEvidence(r,p)[0].dividendsPerShare,0);
+});
+test('annual plus all required quarterly filings are selected; annual never-paid text is not carried forward',async()=>{
+ const s=structuredClone(sub),r=s.filings.recent;
+ r.form=['10-Q','10-Q','10-Q','10-K'];r.reportDate=['2026-09-30','2026-06-30','2026-03-31','2025-12-31'];
+ r.accessionNumber=r.form.map((_,i)=>'0001234567-26-00000'+(i+1));r.primaryDocument=['q3.htm','q2.htm','q1.htm','annual.htm'];
+ const seen=[];
+ const result=await verifyDividends([],rows(),s,'1234567',async f=>{seen.push(f.end);return f.form==='10-K'?never:'No dividend evidence';});
+ assert.deepEqual(seen,['2025-12-31','2026-09-30','2026-06-30','2026-03-31']);
+ assert.deepEqual(result.quarterly.map(r=>r.dividendsPerShare),[null,null,null,0]);
+ assert.equal(result.checks[0].form,'10-K');
+ assert.equal(result.checks[1].status,'no-sufficient-evidence');
+});
+test('annual evidence plus explicit current YTD table zeros establishes all four quarters',async()=>{
+ const s=structuredClone(sub),r=s.filings.recent;
+ r.form=['10-Q','10-K'];r.reportDate=['2026-09-30','2025-12-31'];r.accessionNumber=['0001234567-26-000001','0001234567-26-000002'];r.primaryDocument=['q3.htm','annual.htm'];
+ const result=await verifyDividends([],rows(),s,'1234567',async f=>f.form==='10-K'?never:inline()+inline({tag:'us-gaap:PaymentsOfDividends',unit:'currency'}));
+ assert.ok(result.quarterly.every(r=>r.dividendsPaid===0&&r.dividendsPerShare===0));
+ assert.equal(result.evidence.quarterly[0].dividendsPerShare.method,'explicit-inline-zero');
 });
