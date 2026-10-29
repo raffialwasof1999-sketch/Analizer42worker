@@ -212,7 +212,9 @@ function aaCheckDashboard_(d,a,q) {
     );
   }
 
+  // Accept the old yield model until the separately reviewed sheet update is applied.
   const dividendYield = aaDividendYieldReference_(d);
+  const dividendPerShare = aaDividendPerShareReference_(d);
 
   for (const col of ['E','F','G']) {
     const refs = [
@@ -239,7 +241,7 @@ function aaCheckDashboard_(d,a,q) {
       },
       {
         cell:col+'28',
-        items:[col+'27',dividendYield]
+        items:[col+'27']
       }
     ];
 
@@ -250,7 +252,11 @@ function aaCheckDashboard_(d,a,q) {
 
       if (
         !formula ||
-        ref.items.some(s => !formula.includes(s))
+        ref.items.some(s => !formula.includes(s)) ||
+        (ref.cell===col+'28' && !(
+          (formula.includes('RATE(') && [dividendPerShare,'$E$3','$B$3'].every(s => formula.includes(s))) ||
+          (!formula.includes('RATE(') && formula.includes(dividendYield))
+        ))
       ) {
         throw Error(
           'Unexpected result formula in Analyzer!'+
@@ -283,6 +289,19 @@ function aaDividendYieldReference_(d) {
   );
   if (matches.length!==1) {
     throw Error('Expected exactly one calculated Dividend Yield metric in Analyzer column H.');
+  }
+  return '$I$'+matches[0];
+}
+
+
+/** Locate trailing dividend dollars per share independently of row position. */
+function aaDividendPerShareReference_(d) {
+  const labels = d.getRange(4,8,Math.max(1,d.getLastRow()-3),1).getDisplayValues();
+  const matches = labels.flatMap((r,i) =>
+    /^Dividend Per Share \((?:TTM|Latest FY)\)$/.test(String(r[0]).trim()) ? [i+4] : []
+  );
+  if (matches.length!==1) {
+    throw Error('Expected exactly one calculated Dividend Per Share metric in Analyzer column H.');
   }
   return '$I$'+matches[0];
 }

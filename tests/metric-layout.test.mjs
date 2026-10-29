@@ -15,4 +15,16 @@ test('annual mode uses latest fiscal-year label',()=>assert.equal(context.helper
 test('missing dividend yield stops refresh safely',()=>assert.throws(()=>context.helper(sheet({})),/exactly one/));
 test('duplicate dividend yield stops refresh safely',()=>assert.throws(()=>context.helper(sheet({20:'Dividend Yield (TTM)',22:'Dividend Yield (TTM)'})),/exactly one/));
 test('forward yield cannot substitute for trailing yield',()=>assert.throws(()=>context.helper(sheet({23:'Forward Dividend Yield'})),/exactly one/));
-test('result guard uses the resolved reference',()=>{assert.ok(source.includes("items:[col+'27',dividendYield]"));assert.ok(!source.includes("items:[col+'27','$I$16']"));});
+test('result guard supports fixed-dollar RATE and the old yield model during rollout',()=>{
+ assert.ok(source.includes("items:[col+'27']"));
+ assert.ok(source.includes("[dividendPerShare,'$E$3','$B$3']"));
+ assert.ok(source.includes("!formula.includes('RATE(') && formula.includes(dividendYield)"));
+});
+vm.runInContext(';globalThis.dps=aaDividendPerShareReference_;',context);
+test('finds trailing dividend dollars per share after row movement',()=>assert.equal(context.dps(sheet({21:'Dividend Per Share (TTM)'})),'$I$21'));
+test('finds annual dividend dollars per share',()=>assert.equal(context.dps(sheet({35:'Dividend Per Share (Latest FY)'})),'$I$35'));
+test('missing or duplicate DPS does not silently use yield',()=>{
+ assert.throws(()=>context.dps(sheet({19:'Dividend Yield (TTM)'})),/exactly one/);
+ assert.throws(()=>context.dps(sheet({21:'Dividend Per Share (TTM)',30:'Dividend Per Share (TTM)'})),/exactly one/);
+});
+
