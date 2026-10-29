@@ -86,6 +86,8 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 
 ## Worker rules (checked by `tests/sheet-compatibility.test.mjs`)
 
+- Dividend zeros require explicit numeric data or supported issuer nonpayment statements in primary SEC reports (`src/sec-dividend-status.js`). Missing tags, buybacks, suspended-payment policies and future intentions never prove zero. At most three recent primary reports are read with the existing bounded SEC-document fetcher; unavailable/unsupported documents leave values null. Never-paid claims stop at their report end and conflicting positive reported dividends reject the claim. Period-limited text is supported only for explicit calendar-month windows with verifiable quarter boundaries. Foreign annual rows are supported conservatively. Status/provenance lives in the additive top-level `dividendVerification`, preserving financial-row field order and the Apps Script import schema. The sheet already displays numeric zero and retains a dash for missing values. No ticker-specific exceptions.
+
 - `VERSION` in `src/index.js` must equal `AA.schema` in `Code.gs`; changing
   it needs a paired script change.
 - At most 20 annual and 60 quarterly rows, newest first, no duplicate
@@ -186,3 +188,4 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
    live coverage audit on the PR.
 4. After merging or editing: refresh the sheet **and** change the ticker
    once (then back), and confirm the change is still there.
+
