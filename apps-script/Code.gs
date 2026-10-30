@@ -853,7 +853,7 @@ function aaTickerEdited(e) {
  * other refresh writes the status itself.
  */
 function aaShowFailedImport_(ss,message) {
-  if (/Another SEC refresh is in progress|Ticker changed during fetch/.test(message)) return;
+  if (/Another SEC refresh is in progress/.test(message)) return;
   try {
     const d = ss.getSheetByName(AA.dashboard);
     if (!d) return;
@@ -861,10 +861,34 @@ function aaShowFailedImport_(ss,message) {
     const reason = message.replace(/^Worker HTTP \d+:\s*/,'');
     d.getRange('B7').setValue(
       '\u26A0 SEC IMPORT FAILED for '+ticker+'\n'+reason+
-      '\nColumn I stays blank for this ticker.');
+      '\nValuations are hidden until a successful refresh.'+
+      aaLastSuccessfulImport_(ss));
     d.getRange(AA.companyCell).setValue('-');
   } catch (e) {
     console.error('Status update failed: '+String(e.message||e));
+  }
+}
+
+function aaLastSuccessfulImport_(ss) {
+  const q = ss.getSheetByName(AA.quarterSheet);
+  if (!q) return '\nLast successful import: unavailable';
+  const at = q.getRange('Z2').getDisplayValue();
+  const ticker = q.getRange('Y2').getDisplayValue();
+  return '\nLast successful import: '+(at ? ticker+' | '+at : 'unavailable');
+}
+
+function aaGuardValuations_(d) {
+  // Preserve each calculation verbatim; B7 is independent of these outputs.
+  // Positive success gating also hides results on a ticker mismatch.
+  const prefix = '=IF(LEFT($B$7,14)="SEC snapshot: ",';
+  for (const address of ['G2:G7','E5','B14:D17','I5:I27','E25:G28']) {
+    const range = d.getRange(address);
+    const formulas = range.getFormulas();
+    formulas.forEach((row,r)=>row.forEach((formula,c)=>{
+      if (formula && !formula.startsWith(prefix)) {
+        range.getCell(r+1,c+1).setFormula(prefix+formula.slice(1)+',"")');
+      }
+    }));
   }
 }
 
@@ -883,6 +907,14 @@ function refreshStockAnalyzer() {
     const x = aaSheets_();
     const {d,a,q} = x;
     ss = x.ss;
+
+    aaGuardValuations_(d);
+
+    // Fail closed before validation or network access, including same-ticker
+    // refreshes. Dashboard formulas require the successful B7 status prefix.
+    d.getRange('B7').setValue('SEC REFRESHING — valuations hidden'+
+      aaLastSuccessfulImport_(ss));
+    SpreadsheetApp.flush();
 
     // Validate the layout before changing anything.
     aaCheckDashboard_(d,a,q);
@@ -1013,10 +1045,6 @@ function refreshStockAnalyzer() {
       d.getRange(AA.exchangeCell)
         .setValue(p.exchange||'');
 
-      // SEC status formula continues monitoring ticker matching.
-      d.getRange('B7')
-        .setFormula(aaStatusFormula_());
-
       // Refresh notes relating to the new SEC snapshot.
       aaHeaderNotes_(d,p);
 
@@ -1039,6 +1067,10 @@ function refreshStockAnalyzer() {
           'Imported SEC ticker could not be verified.'
         );
       }
+
+      // Publish success only after all writes and ticker checks complete.
+      d.getRange('B7').setFormula(aaStatusFormula_());
+      SpreadsheetApp.flush();
 
     } catch (err) {
       if (writing) {
