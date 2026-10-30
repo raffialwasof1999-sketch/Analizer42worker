@@ -27,8 +27,8 @@ Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`.
   `sharesOutstandingAsOf`: cover-page ordinary shares, annual mode only). Cleared and rewritten, with
   number formats.
 - **Analyzer** B4 (company), E2 (exchange), B6 (unticked), the **B7
-  formula** (`aaStatusFormula_`), and the **notes on F2-F7, C5 and A7**
-  (`aaHeaderNotes_`).
+  formula** (`aaStatusFormula_`). Hover notes are permanent sheet content;
+  refresh and rollback never read or write them.
 
 Changing any of these in the sheet alone is undone by the next refresh:
 change the script instead (and the sheet, for an immediate effect).
@@ -39,8 +39,7 @@ change the script instead (and the sheet, for an immediate effect).
 labels next to cells the refresh reads or writes:
 
 - Labels in `AA_LABELS`: A2 `Stock Ticker`, A4 `Company Name`, A6
-  `↻ Refresh SEC Data`, A7 `SEC Data Status`, C2 `Exchange`, C5
-  `Enterprise Value`, and F2:F7 (the six "Latest ..." labels).
+  `↻ Refresh SEC Data`, A7 `SEC Data Status`, and C2 `Exchange`.
 - B6 must stay a checkbox.
 - Safety net for the results (not written by the refresh, kept by choice):
   A25:A28 label wording, and E25:G28 formulas must keep referencing their
@@ -60,8 +59,7 @@ cell together with its I and J cells (never copy, never insert whole rows).
 
 Analyzer H2:L23 (headings, names, formulas, notes), B14:D17, H23+, the
 hidden Annual View tab,
-rows 29+ (the "NOTES" block, from the worker's `?blankReasons=1`), notes on
-cells not listed above, the Historical P/E Data tab, Financial Data AF+ and
+rows 29+ (the "NOTES" block, from the worker's `?blankReasons=1`), all hover notes (including C5, F2:F7 and A7), the Historical P/E Data tab, Financial Data AF+ and
 Quarterly Data AA+ (one `IMPORTDATA` in AA2, `quarterlyExtrasCsv=1`, fills
 AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 
@@ -197,3 +195,11 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 E28:G28 can use RATE(years, annual dividend per share, -current price, terminal share price, 0, projected price CAGR). The annual dividend is held at the imported trailing per-share amount; cash is received at each year end without reinvestment. The terminal price is current price times (1 + scenario price CAGR)^years. Missing dividends remain unknown; zero dividends reduce exactly to the price-only return. Negative dividends, nonpositive price/years and invalid price CAGR return a dash.
 
 During rollout the validator accepts both the existing yield-addition formula and the fixed-dollar RATE formula. For RATE it requires the unique `Dividend Per Share (TTM)` or `Dividend Per Share (Latest FY)` label in H and adjacent value in I, plus current price and years. Deploy this validator before applying the reviewed sheet formulas in `docs/fixed-dividend-projection.md`. No dividend evidence/importer logic is changed. The sheet update is separate and must be read back; merging this PR does not by itself alter dashboard formulas.
+
+## Permanent dashboard hover notes
+
+C5, F2:F7 and A7 contain company-independent plain-text notes maintained
+directly in the sheet. The text is recorded in `docs/static-dashboard-notes.json`
+for reference only; the importer never loads or writes it. Notes describe
+meaning, sources and calculations for quarterly and annual-only modes.
+A6 and B6 intentionally have no hover notes.
