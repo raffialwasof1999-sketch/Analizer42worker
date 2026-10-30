@@ -4,6 +4,8 @@
  * No network requests, data-sheet writes, row hiding, or Worker changes.
  * Shared mode uses E16:G16 and E18:G18. Independent FCF inputs are saved
  * in document properties BEFORE merging and restored exactly on uncheck.
+ * Never create or restore cell notes. Existing reference-tab notes are
+ * maintained manually; legacy backup notes are deliberately ignored.
  */
 const AA_SV = Object.freeze({
   sheet: 'Analyzer', control: 'E12', label: 'Shared Profit / FCF Margin',
@@ -47,7 +49,7 @@ function aaSvCapture_(sheet) {
   for (const address of AA_SV.backupRanges) {
     const r = sheet.getRange(address), values = r.getValues(), formulas = r.getFormulas();
     entries[address] = {data: values.map((row, i) => row.map((v, j) => formulas[i][j] || v)),
-      notes: r.getNotes(), formats: r.getNumberFormats()};
+      formats: r.getNumberFormats()};
   }
   return {version: 1, sheetId: sheet.getSheetId(), entries};
 }
@@ -59,7 +61,9 @@ function aaSvRestore_(sheet, snapshot) {
     sheet.getRange(address).breakApart();
   for (const address of AA_SV.backupRanges) {
     const entry = snapshot.entries[address];
-    sheet.getRange(address).setValues(entry.data).setNotes(entry.notes)
+    // Old version-1 backups can include notes. Never restore them, even
+    // on rollback; preserve only independent inputs, formulas and formats.
+    sheet.getRange(address).setValues(entry.data).clearNote()
       .setNumberFormats(entry.formats);
   }
   for (const address of ['A18:D18', 'A19:D19', 'A25:D25', 'A26:D26'])
@@ -123,9 +127,9 @@ function aaSvSetMode_(sheet, properties, enabled) {
     for (const address of ['E17:G17', 'A19:G19', 'A26:G26'])
       sheet.getRange(address).clearContent().clearNote();
     sheet.getRange('A18').setValue('Assumed P/E / Price-to-FCF Multiple\n(Shared; End of Projection)')
-      .setNote('Shared mode: each scenario uses its P/E input in row 18 for both earnings and FCF valuation. The independent Price/FCF input is saved and restored when E12 is unchecked.');
+      .clearNote();
     sheet.getRange('A25').setValue('Maximum Purchase Price Today to Achieve Desired Return\n(Shared Profit / FCF Valuation)')
-      .setNote('Shared mode: one discounted purchase-price result per scenario, using the shared margin in row 16 and shared multiple in row 18. This is a price today, not the future sale price.');
+      .clearNote();
     for (const address of AA_SV.mergeRanges) sheet.getRange(address).merge();
     sheet.getRange(AA_SV.control).setValue(true);
   } catch (error) {
