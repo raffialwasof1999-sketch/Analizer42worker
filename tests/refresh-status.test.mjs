@@ -8,6 +8,8 @@ function setup() {
   const events=[];
   const d={getRange(address){return {
     getDisplayValue:()=>cells.get(address)||'',
+    getValue:()=>cells.get(address)||'',
+    getFormula:()=>String(cells.get(address)||'').startsWith('=')?cells.get(address):'',
     setValue(v){cells.set(address,v); events.push(['value',address,v]);return this;},
     setFormula(v){cells.set(address,v);events.push(['formula',address,v]);return this;},
     getFormulas:()=>[['=1+2','']],
@@ -43,10 +45,41 @@ test('another refresh owning the lock keeps its status',()=>{
   const {ctx,cells,ss}=setup();const before=cells.get('B7');
   ctx.aaShowFailedImport_(ss,'Another SEC refresh is in progress.');assert.equal(cells.get('B7'),before);
 });
-test('formula guards preserve the original calculation and are idempotent',()=>{
-  const {ctx,events,d}=setup();ctx.aaGuardValuations_(d);
-  const formulas=events.filter(e=>e[0]==='formula');assert.equal(formulas.length,5);
-  for(const e of formulas) assert.equal(e[2],'=IF(LEFT($B$7,14)="SEC snapshot: ",1+2,"")');
-  d.getRange=()=>({getFormulas:()=>[[formulas[0][2]]],getCell(){throw Error('already guarded');}});
-  ctx.aaGuardValuations_(d);
+test('refresh failure preserves a guarded calculation moved outside the old dashboard ranges',()=>{
+  const {ctx,cells,events}=setup();
+  const moved='=IF(LEFT($B$7,14)="SEC snapshot: ",SUM(M50:M53),"")';
+  cells.set('L45',moved);
+  ctx.aaFetch_=()=>{throw Error('Worker HTTP 503: unavailable');};
+  assert.throws(()=>ctx.refreshStockAnalyzer(),/503/);
+  assert.equal(cells.get('L45'),moved);
+  assert.match(cells.get('B7'),/SEC IMPORT FAILED/);
+  assert.ok(!events.some(e=>e[0]==='formula'));
+});
+
+test('successful refresh and ticker changes use only core dashboard cells and preserve moved formulas',()=>{
+  const {ctx,cells,events}=setup();
+  const moved='=IF(LEFT($B$7,14)="SEC snapshot: ",SUM(M50:M53),"")';
+  cells.set('L45',moved);
+  const dataSheet=quarter=>({getLastRow:()=>2,getRange(address){return {
+    getDisplayValue:()=>address==='Y2'?(cells.get('sourceTicker')||'MSFT'):'10/29/2026 4:52 PM',
+    getValue:()=>'',getValues:()=>[['']],
+    clearContent(){return this;},
+    setValues(rows){if(quarter && typeof address==='number')cells.set('sourceTicker',rows[0][24]);return this;},
+    setValue(){return this;},setNumberFormat(){return this;}
+  };}});
+  ctx.testSheets.a=dataSheet(false);ctx.testSheets.q=dataSheet(true);
+  ctx.testSheets.ss.getSheetByName=n=>n==='Analyzer'?ctx.testSheets.d:ctx.testSheets.q;
+  ctx.aaFetch_=ticker=>({ticker,companyName:ticker+' Company',exchange:'Nasdaq'});
+  ctx.aaValidatePayload_=(p,ticker)=>({annual:[[2026]],quarter:[[...Array(24).fill(null),ticker]],annualOnly:false,currency:'USD'});
+  for(const ticker of ['MSFT','AAPL','MSFT']) {
+    cells.set('B2',ticker);
+    const result=ctx.refreshStockAnalyzer();
+    assert.equal(result.ticker,ticker);
+    assert.equal(cells.get('B4'),ticker+' Company');
+    assert.equal(cells.get('E2'),'Nasdaq');
+    assert.match(cells.get('B7'),/^=IF/);
+    assert.equal(cells.get('L45'),moved);
+  }
+  const writes=events.filter(e=>e[0]==='value'||e[0]==='formula');
+  assert.ok(writes.every(e=>['B4','E2','B7'].includes(e[1])));
 });

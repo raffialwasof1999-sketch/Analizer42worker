@@ -66,22 +66,9 @@ const AA_QUARTER_FIELDS = [
   'sourceTicker'
 ];
 
-// Only labels next to cells the refresh reads or writes are checked:
-// B2 (ticker), B4 (company), B6 (checkbox), B7 (status), and E2 (exchange).
-// Hover notes are permanent sheet content. Everything else on the
-// dashboard (history table, assumptions, results, metrics table) is never
-// written by the refresh and is free to change in the sheet.
-const AA_LABELS = {
-  A2:'Stock Ticker',
-  A4:'Company Name',
-  A6:'↻ Refresh SEC Data',
-  A7:'SEC Data Status',
-  C2:'Exchange'
-};
-
-// Refresh never writes metric cells in H:L. The calculated Dividend Yield
-// label in H locates its value in I for the projected-return safety check.
-// Move each complete H:L metric row together; other names are unrestricted.
+// Only B2 (ticker), B4 (company), E2 (exchange), B6 (refresh checkbox),
+// and B7 (status) have fixed dashboard locations. Labels, assumptions,
+// results and metric rows are maintained by the sheet, not the importer.
 
 /* =========================================================
    SPREADSHEET MENU
@@ -158,21 +145,6 @@ function aaCheckHeader_(sheet,expected) {
    ========================================================= */
 
 function aaCheckDashboard_(d,a,q) {
-  for (const [cell,expected] of Object.entries(AA_LABELS)) {
-    const value = d
-      .getRange(cell)
-      .getDisplayValue()
-      .trim();
-
-    if (value !== expected) {
-      throw Error(
-        'Layout changed: Analyzer!'+cell+
-        ' should say "'+expected+
-        '", found "'+value+'".'
-      );
-    }
-  }
-
   const refreshControl = d.getRange(AA.refreshCheckbox);
   const rule = refreshControl.getDataValidation();
 
@@ -186,79 +158,6 @@ function aaCheckDashboard_(d,a,q) {
     );
   }
 
-  // Safety net (owner's choice): the result labels and formulas are not
-  // written by the refresh, but a broken result formula stops the import
-  // with a clear message instead of showing a wrong value.
-  const label = d
-    .getRange('A25:A28')
-    .getDisplayValues()
-    .map(r => r[0]);
-
-  if (
-    !label[0].includes('Net Profit Margin') ||
-    !label[1].includes('Free Cash Flow Margin') ||
-    !label[2].startsWith('Current Stock Price') ||
-    !label[3].startsWith('Current Stock Price')
-  ) {
-    throw Error(
-      'Result labels moved from A25:A28.'
-    );
-  }
-
-  // Accept the old yield model until the separately reviewed sheet update is applied.
-  const dividendYield = aaDividendYieldReference_(d);
-  const dividendPerShare = aaDividendPerShareReference_(d);
-
-  for (const col of ['E','F','G']) {
-    const refs = [
-      {
-        cell:col+'25',
-        items:[
-          col+'15',col+'16',col+'18',col+'20',
-          '$G$2','$G$6','$B$3'
-        ]
-      },
-      {
-        cell:col+'26',
-        items:[
-          col+'15',col+'17',col+'19',col+'20',
-          '$G$2','$G$6','$B$3'
-        ]
-      },
-      {
-        cell:col+'27',
-        items:[
-          'AVERAGE('+col+'25:'+col+'26)',
-          col+'20','$E$3'
-        ]
-      },
-      {
-        cell:col+'28',
-        items:[col+'27']
-      }
-    ];
-
-    for (const ref of refs) {
-      const formula = d
-        .getRange(ref.cell)
-        .getFormula();
-
-      if (
-        !formula ||
-        ref.items.some(s => !formula.includes(s)) ||
-        (ref.cell===col+'28' && !(
-          (formula.includes('RATE(') && [dividendPerShare,'$E$3','$B$3'].every(s => formula.includes(s))) ||
-          (!formula.includes('RATE(') && formula.includes(dividendYield))
-        ))
-      ) {
-        throw Error(
-          'Unexpected result formula in Analyzer!'+
-          ref.cell+'; no data was imported.'
-        );
-      }
-    }
-  }
-
   aaCheckHeader_(a,AA_ANNUAL_FIELDS);
   aaCheckHeader_(q,AA_QUARTER_FIELDS);
 
@@ -269,34 +168,6 @@ function aaCheckDashboard_(d,a,q) {
       'Quarterly Data!Z1 already contains an unrelated field.'
     );
   }
-}
-
-/**
- * Locate dividend yield by label so moving metric rows preserves validation.
- * Move the label and calculated value together in columns H:I.
- */
-function aaDividendYieldReference_(d) {
-  const labels = d.getRange(4,8,Math.max(1,d.getLastRow()-3),1).getDisplayValues();
-  const matches = labels.flatMap((r,i) =>
-    /^Dividend Yield \((?:TTM|Latest FY)\)$/.test(String(r[0]).trim()) ? [i+4] : []
-  );
-  if (matches.length!==1) {
-    throw Error('Expected exactly one calculated Dividend Yield metric in Analyzer column H.');
-  }
-  return '$I$'+matches[0];
-}
-
-
-/** Locate trailing dividend dollars per share independently of row position. */
-function aaDividendPerShareReference_(d) {
-  const labels = d.getRange(4,8,Math.max(1,d.getLastRow()-3),1).getDisplayValues();
-  const matches = labels.flatMap((r,i) =>
-    /^Dividend Per Share \((?:TTM|Latest FY)\)$/.test(String(r[0]).trim()) ? [i+4] : []
-  );
-  if (matches.length!==1) {
-    throw Error('Expected exactly one calculated Dividend Per Share metric in Analyzer column H.');
-  }
-  return '$I$'+matches[0];
 }
 
 /* =========================================================
@@ -761,21 +632,6 @@ function aaLastSuccessfulImport_(ss) {
   return '\nLast successful import: '+(at ? ticker+' | '+at : 'unavailable');
 }
 
-function aaGuardValuations_(d) {
-  // Preserve each calculation verbatim; B7 is independent of these outputs.
-  // Positive success gating also hides results on a ticker mismatch.
-  const prefix = '=IF(LEFT($B$7,14)="SEC snapshot: ",';
-  for (const address of ['G2:G7','E5','B14:D17','I5:I27','E25:G28']) {
-    const range = d.getRange(address);
-    const formulas = range.getFormulas();
-    formulas.forEach((row,r)=>row.forEach((formula,c)=>{
-      if (formula && !formula.startsWith(prefix)) {
-        range.getCell(r+1,c+1).setFormula(prefix+formula.slice(1)+',"")');
-      }
-    }));
-  }
-}
-
 function refreshStockAnalyzer() {
   const lock =
     LockService.getDocumentLock() ||
@@ -792,15 +648,16 @@ function refreshStockAnalyzer() {
     const {d,a,q} = x;
     ss = x.ss;
 
-    aaGuardValuations_(d);
-
+    // Existing sheet formulas keep their B7 success checks when moved.
+    // Do not rewrite them or require any calculation to occupy a fixed range.
     // Fail closed before validation or network access, including same-ticker
-    // refreshes. Dashboard formulas require the successful B7 status prefix.
+    // refreshes, by replacing the successful status prefix.
     d.getRange('B7').setValue('SEC REFRESHING — valuations hidden'+
       aaLastSuccessfulImport_(ss));
     SpreadsheetApp.flush();
 
-    // Validate the layout before changing anything.
+    // Validate the refresh checkbox and data-tab schemas. Dashboard
+    // labels and calculation locations do not restrict importing.
     aaCheckDashboard_(d,a,q);
 
     const original = d
@@ -1021,3 +878,4 @@ function refreshStockAnalyzer() {
     lock.releaseLock();
   }
 }
+
