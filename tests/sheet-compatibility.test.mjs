@@ -140,16 +140,14 @@ test('the metrics-table headings H2, I2 and J2 are free to rename', () => {
   assert.ok(!scriptSource.includes("getRange('I2')"));
 });
 
-test('the layout check covers only cells the refresh reads or writes', () => {
-  const labels = scriptSource.slice(scriptSource.indexOf('const AA_LABELS = {'), scriptSource.indexOf('};', scriptSource.indexOf('const AA_LABELS = {')));
-  const cells = [...labels.matchAll(/^\s+([A-Z]+\d+):/gm)].map(m => m[1]);
-  assert.deepEqual(cells, ['A2','A4','A6','A7','C2']);
-  for (const gone of ["getRange('E24:G24')", "getRange('B13:D13')"])
-    assert.ok(!scriptSource.includes(gone), gone);
-  assert.ok(scriptSource.includes("getRange('A25:A28')"));              // result safety net kept
-  assert.ok(scriptSource.includes('Unexpected result formula'));
-  assert.ok(scriptSource.includes('aaCheckHeader_(a,AA_ANNUAL_FIELDS)'));  // data-tab headers still checked
-  assert.ok(scriptSource.includes('Refresh checkbox missing'));           // B6 still checked
+test('dashboard labels and result formulas no longer restrict imports', () => {
+  assert.ok(!scriptSource.includes('AA_LABELS'));
+  assert.ok(!scriptSource.includes("getRange('A25:A28')"));
+  assert.ok(!scriptSource.includes('Unexpected result formula'));
+  assert.ok(!scriptSource.includes('aaDividendYieldReference_'));
+  assert.ok(!scriptSource.includes('aaDividendPerShareReference_'));
+  assert.ok(scriptSource.includes('aaCheckHeader_(a,AA_ANNUAL_FIELDS)'));
+  assert.ok(scriptSource.includes('Refresh checkbox missing'));
 });
 
 test('a foreign filer gets a plain reason, and the script shows a failed import in B7 and B4', async () => {
@@ -205,3 +203,4 @@ test('annual-only refresh records cover-page shares outstanding in Quarterly Dat
   assert.match(scriptSource, /getRange\('Z3:Z10'\)\.getValues\(\)/);
   assert.match(scriptSource, /Number\.isFinite\(p\.sharesOutstanding\)/);
 });
+

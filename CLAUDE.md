@@ -11,11 +11,6 @@ checked.
 | Apps Script bound to the sheet | `apps-script/` | PR → merge → `.github/workflows/apps-script-deploy.yml` uploads it (backup first, verified after). Never edit in Google's editor: the next deploy refuses to overwrite an out-of-band edit |
 | Google Sheet "Active Analyzer 10" (`1ryLKPxrVoxSVhac7HpVR_l8ARSjn0E65DhTz082PlXY`) | Google Sheets connector | Direct edits; verify after a refresh |
 
-Assistants may merge pull requests when explicitly asked by the repository
-owner, after the relevant checks pass and subject to GitHub permissions and
-branch protections. Otherwise, leave the merge to the owner and provide the
-full PR link.
-
 ## What every refresh (and ticker change) overwrites
 
 Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`.
@@ -33,27 +28,26 @@ Both run `refreshStockAnalyzer()` in `apps-script/Code.gs`.
 Changing any of these in the sheet alone is undone by the next refresh:
 change the script instead (and the sheet, for an immediate effect).
 
-## What makes every refresh fail
+## Dashboard locations and import checks
 
-`aaCheckDashboard_` stops the import if any of these change. It checks only
-labels next to cells the refresh reads or writes:
+Only five dashboard cells have fixed roles: B2 (ticker input), B4 (company
+name output), E2 (exchange output), B6 (refresh checkbox), and B7 (status).
+B6 must remain a checkbox, and B2 must contain a valid ticker that stays
+unchanged during the import. Labels and all other dashboard cells can move
+or be renamed without blocking refresh. There are no result-formula,
+assumption-address or dividend-label checks.
 
-- Labels in `AA_LABELS`: A2 `Stock Ticker`, A4 `Company Name`, A6
-  `↻ Refresh SEC Data`, A7 `SEC Data Status`, and C2 `Exchange`.
-- B6 must stay a checkbox.
-- Safety net for the results (not written by the refresh, kept by choice):
-  A25:A28 label wording, and E25:G28 formulas must keep referencing their
-  inputs (E15/E16/E18/E20, $G$2, $G$6 (also within the B22 share selector), $B$3, $E$3, and the calculated dividend reference...).
-- Data-tab header rows must match the field lists; Quarterly Data Z1 is
-  `lastImportedAt` or empty.
+The data tabs still require their expected names and ordered field headers;
+Quarterly Data Z1 must be `lastImportedAt` or empty. Payload schema, numeric
+values, fiscal periods and source-ticker checks remain in place.
 
-The legacy dividend-yield reference is resolved by its unique `Dividend Yield (TTM)` or `Dividend Yield (Latest FY)` label in column H; its calculated value must remain next to it in column I. Move complete H:L metric rows together. This avoids a fixed dividend-yield row in the refresh validator.
-
-Renaming or moving any of the other checked cells needs the matching script change in the
-same PR. Nothing else is checked: the history table and assumptions
-(A3, A12:G20, B13:D13, E24:G24) and the metrics table (H2:J23) can be
-renamed or edited in the sheet. To reorder metrics, cut and paste each H
-cell together with its I and J cells (never copy, never insert whole rows).
+Refresh and rollback write only the core dashboard outputs. They do not
+inspect or rewrite dashboard calculation ranges. Existing sheet formulas
+already have B7 success guards and retain them when moved. When authoring
+or replacing a valuation formula, preserve its B7 success guard and correct
+cell references; the importer deliberately does not validate its math or
+layout. Moving a whole row containing one of the five core cells still
+requires keeping that core cell in its fixed location.
 
 ## Safe to change in the sheet
 
@@ -182,8 +176,8 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 
 1. Which part(s) does it touch? Is any target cell in the overwrite or
    refuse-to-refresh lists above?
-2. Script-written cells → change `apps-script/`; layout-checked cells →
-   update `AA_LABELS` (or the header checks) in the same PR.
+2. Script-written cells → change `apps-script/`; data-tab schema changes →
+   update the field lists and header checks in the same PR.
 3. Worker change → `npm test` (includes the compatibility test) and the
    live coverage audit on the PR.
 4. After merging or editing: refresh the sheet **and** change the ticker
@@ -194,7 +188,11 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 
 E28:G28 can use RATE(years, annual dividend per share, -current price, terminal share price, 0, projected price CAGR). The annual dividend is held at the imported trailing per-share amount; cash is received at each year end without reinvestment. The terminal price is current price times (1 + scenario price CAGR)^years. Missing dividends remain unknown; zero dividends reduce exactly to the price-only return. Negative dividends, nonpositive price/years and invalid price CAGR return a dash.
 
-During rollout the validator accepts both the existing yield-addition formula and the fixed-dollar RATE formula. For RATE it requires the unique `Dividend Per Share (TTM)` or `Dividend Per Share (Latest FY)` label in H and adjacent value in I, plus current price and years. Deploy this validator before applying the reviewed sheet formulas in `docs/fixed-dividend-projection.md`. No dividend evidence/importer logic is changed. The sheet update is separate and must be read back; merging this PR does not by itself alter dashboard formulas.
+Projection formulas and dividend references are maintained in the sheet.
+The importer does not check their location, label or formula text. Preserve
+B7 success guards when editing them so failed refreshes keep valuations
+hidden. `docs/fixed-dividend-projection.md` records the original rollout
+formulas; moving results does not require an Apps Script change.
 
 ## Permanent dashboard hover notes
 
@@ -203,3 +201,4 @@ directly in the sheet. The text is recorded in `docs/static-dashboard-notes.json
 for reference only; the importer never loads or writes it. Notes describe
 meaning, sources and calculations for quarterly and annual-only modes.
 A6 and B6 intentionally have no hover notes.
+
