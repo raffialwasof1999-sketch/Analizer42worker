@@ -143,7 +143,7 @@ test('the metrics-table headings H2, I2 and J2 are free to rename', () => {
 test('the layout check covers only cells the refresh reads or writes', () => {
   const labels = scriptSource.slice(scriptSource.indexOf('const AA_LABELS = {'), scriptSource.indexOf('};', scriptSource.indexOf('const AA_LABELS = {')));
   const cells = [...labels.matchAll(/^\s+([A-Z]+\d+):/gm)].map(m => m[1]);
-  assert.deepEqual(cells, ['A2','A4','A6','A7','C2','C5','F2','F3','F4','F5','F6','F7']);
+  assert.deepEqual(cells, ['A2','A4','A6','A7','C2']);
   for (const gone of ["getRange('E24:G24')", "getRange('B13:D13')"])
     assert.ok(!scriptSource.includes(gone), gone);
   assert.ok(scriptSource.includes("getRange('A25:A28')"));              // result safety net kept
@@ -198,13 +198,6 @@ test('an annual-only foreign company passes the refresh validation; the script r
   assert.ok(f.includes("'Quarterly Data'!Z6=\"annual\""));
   assert.ok(f.includes('Foreign filer: annual reports only, figures in '));
   for (const s of ['Last imported quarter: Q', 'SEC imported ']) assert.ok(f.includes(s), s);
-});
-
-test('annual-only companies get notes that describe the Annual View formulas', () => {
-  assert.match(scriptSource, /if \(annualOnly\) Object\.assign\(notes, aaAnnualNotes_\(p,context\)\);/);
-  const body = scriptSource.slice(scriptSource.indexOf('function aaAnnualNotes_'), scriptSource.indexOf('WRITE SEC FINANCIAL DATA'));
-  for (const cell of ['F2','F3','F4','C5','F5','F6','F7']) assert.ok(body.includes(cell + ':'), cell);
-  assert.ok(body.includes('"Annual View"!B9'));
 });
 
 test('annual-only refresh records cover-page shares outstanding in Quarterly Data Z7:Z10', () => {

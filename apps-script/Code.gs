@@ -67,8 +67,8 @@ const AA_QUARTER_FIELDS = [
 ];
 
 // Only labels next to cells the refresh reads or writes are checked:
-// B2 (ticker), B4 (company), B6 (checkbox), B7 and A7's note (status),
-// E2 (exchange), C5's note, and the notes on F2:F7. Everything else on the
+// B2 (ticker), B4 (company), B6 (checkbox), B7 (status), and E2 (exchange).
+// Hover notes are permanent sheet content. Everything else on the
 // dashboard (history table, assumptions, results, metrics table) is never
 // written by the refresh and is free to change in the sheet.
 const AA_LABELS = {
@@ -76,14 +76,7 @@ const AA_LABELS = {
   A4:'Company Name',
   A6:'↻ Refresh SEC Data',
   A7:'SEC Data Status',
-  C2:'Exchange',
-  C5:'Enterprise Value',
-  F2:'Latest Revenue (TTM)',
-  F3:'Latest Net Income (TTM)',
-  F4:'Latest Free Cash Flow (TTM)',
-  F5:'Latest Share Count',
-  F6:'Latest Diluted Share Count',
-  F7:'Latest Reported Quarter and Year'
+  C2:'Exchange'
 };
 
 // Refresh never writes metric cells in H:L. The calculated Dividend Yield
@@ -538,115 +531,6 @@ function aaStatusFormula_() {
 }
 
 /* =========================================================
-   UPDATE SEC INFORMATION NOTES
-   ========================================================= */
-
-function aaHeaderNotes_(dashboard,p) {
-  const annualOnly = !p.quarterlyFinancials.length;
-  const first = annualOnly ? p.annualFinancials[0] : p.quarterlyFinancials[0];
-
-  const last = annualOnly ? first : p.quarterlyFinancials[
-    Math.min(3,p.quarterlyFinancials.length-1)
-  ];
-
-  const context =
-    (annualOnly
-      ? 'ANNUAL-ONLY COMPANY: '+p.companyName+' files annual '+
-        (p.annualReportForm||'20-F')+' reports with the SEC and no quarterly '+
-        '10-Qs, so Quarterly Data is empty. Latest SEC fiscal year: FY'+
-        first.fiscalYear+' (ended '+first.fiscalPeriodEnd+'), figures in '+
-        p.reportingCurrency+'. '
-      : 'Latest available SEC quarterly records: '+
-        last.fiscalPeriodEnd+' to '+
-        first.fiscalPeriodEnd+'. ')+
-    'Company: '+p.companyName+
-    ' ('+p.ticker+'). '+
-    'Sources: SEC EDGAR via Cloudflare Worker. '+
-    'Shorter history is normal for newer issuers; incomplete TTM and '+
-    'historical averages correctly show a dash. '+
-    'The data refresh when the Stock Analyzer refresh command runs or '+
-    'its installable ticker edit trigger is enabled. '+
-    'Check SEC Data Status in B7.';
-
-  const notes = {
-    F2:
-      'LATEST REVENUE (TTM)\n'+
-      'G2 sums four consecutive SEC quarters from Quarterly Data!D2:D5.\n'+
-      context,
-
-    F3:
-      'LATEST NET INCOME (TTM)\n'+
-      'G3 sums four consecutive SEC quarters from Quarterly Data!E2:E5.\n'+
-      context,
-
-    F4:
-      'LATEST FREE CASH FLOW (TTM)\n'+
-      'G4 sums four consecutive quarterly values from Quarterly Data!I2:I5. '+
-      'Each quarter is operating cash flow minus capital expenditures; '+
-      'missing facts display a dash.\n'+context,
-
-    C5:
-      'ENTERPRISE VALUE\n'+
-      'E5 = current Google Finance market cap E4 + latest SEC quarter-end '+
-      'total debt (Quarterly Data!Q2) - latest quarter-end cash '+
-      '(Quarterly Data!R2). Balance sheet figures are point-in-time, '+
-      'not TTM sums.\n'+context,
-
-    F5:
-      'LATEST COMMON SHARES OUTSTANDING (NOT DILUTED)\n'+
-      'G5 reads Quarterly Data!U2, the SEC DEI '+ 
-      'EntityCommonStockSharesOutstanding cover-page number tied to the '+ 
-      'latest 10-Q or 10-K accession. The exact as-of date is in '+ 
-      'Quarterly Data!V2. If unavailable, G5 displays a dash. '+ 
-      'This is NOT the weighted-average diluted share count.\n'+context,
-
-    F6:
-      "LATEST DILUTED SHARE COUNT\nG6 reads Quarterly Data!T2, the latest quarter's SEC weighted-average diluted share count. The SEC worker supplies it for every quarter, including a fiscal Q4 (derived from the full-year and Q1-Q3 counts, since 10-Ks report only a full-year figure).\n\nBackstop: if T2 is still blank for a fiscal Q4, G6 derives it as 4 x the full-year diluted count (Financial Data!E) minus the Q1-Q3 counts (Quarterly Data!T3:T5), shown only if within 10% of Q3's; otherwise a dash.\n\nUsed by the calculated P/S and Price / FCF metrics. Purchase-price calculations use this count when Use Diluted Shares (B21) is checked; otherwise they use regular shares outstanding (G5).\n"+context,
-
-    F7:
-      'LATEST REPORTED FISCAL QUARTER\n'+
-      'G7 shows fiscal year/quarter from Quarterly Data!A2:B2. '+ 
-      'X2, when available, is the filing date of an SEC 8-K Item 2.02 '+ 
-      'earnings-results report, not necessarily the initial public '+ 
-      'earnings-announcement date. W2 is the 10-Q/10-K filing date. '+ 
-      'Quarter-end C2 is NOT the public disclosure date.\n'+context,
-
-    A7:
-      "SEC DATA STATUS\nAnalyzer!B7 compares the ticker in B2 with the imported sourceTicker (Quarterly Data!Y2). A mismatch means the imported SEC financials belong to a different company.\n\nLine 1: ticker, annual years and quarters imported.\nLine 2: last imported quarter (Quarterly Data!A2:B2).\nLine 3: Released = filing date of the SEC 8-K Item 2.02 earnings release (X2); SEC filed = 10-Q/10-K filing date (W2).\nLine 4: time of the last successful import (Z2).\n\nIf the company has announced a newer quarter but line 2 still shows the older one, it has not been imported yet: new quarters arrive once the 10-Q/10-K is filed with the SEC, usually a few days after the announcement. Refresh with B6."
-  };
-
-  // Annual-only (foreign) companies: the dashboard reads the hidden
-  // 'Annual View' tab, so the notes describe that instead.
-  if (annualOnly) Object.assign(notes, aaAnnualNotes_(p,context));
-
-  for (const [cell,note] of Object.entries(notes)) {
-    dashboard.getRange(cell).setNote(note);
-  }
-}
-
-/**
- * Notes for an annual-only (20-F/40-F) company. G2:G7, E5, the history
- * table and column I switch to the hidden 'Annual View' tab when Quarterly
- * Data!Z6 is "annual": latest fiscal year, converted to US dollars at
- * Google Finance's live rate, per-share figures per ADR.
- */
-function aaAnnualNotes_(p,context) {
-  const cur = p.reportingCurrency;
-  const usd = cur==='USD' ? 'in US dollars' :
-    'converted from '+cur+' to US dollars at the live Google Finance rate ("Annual View"!B4)';
-  const fy = 'the latest fiscal year (Financial Data row 2)';
-  return {
-    F2: 'LATEST REVENUE (LATEST FISCAL YEAR for this company)\nG2 = revenue of '+fy+', '+usd+'. This company reports annually, so there is no trailing-twelve-month figure.\n'+context,
-    F3: 'LATEST NET INCOME (LATEST FISCAL YEAR for this company)\nG3 = net income attributable to shareholders for '+fy+', '+usd+'.\n'+context,
-    F4: 'LATEST FREE CASH FLOW (LATEST FISCAL YEAR for this company)\nG4 = operating cash flow minus capital expenditures for '+fy+', '+usd+'.\n'+context,
-    C5: 'ENTERPRISE VALUE\nE5 = market value (price E3 x diluted shares G6, "Annual View"!B19; Google\'s market cap is wrong for some ADRs) + (total debt - cash) at the end of '+fy+', '+usd+'.\n'+context,
-    F5: 'LATEST COMMON SHARES OUTSTANDING (ADR EQUIVALENTS)\nG5 = ordinary shares outstanding on the cover page of the latest annual report (Quarterly Data!Z8, as of Z10) divided by the ordinary shares per ADR ("Annual View"!B9). This is NOT the diluted count (G6).\n'+context,
-    F6: 'LATEST DILUTED SHARE COUNT (ADR EQUIVALENTS)\nG6 = weighted diluted ordinary shares of '+fy+' divided by the ordinary shares per ADR ("Annual View"!B9: from the ADR table at "Annual View"!A43, else inferred from Google\'s market cap when within 5% of a clean ratio), so per-share results match the US-listed price. P/E, P/S, P/FCF and yields use price x this count.\n'+context,
-    F7: 'LATEST REPORTED FISCAL YEAR\nG7 shows the latest fiscal year in SEC data and its year end. If it ended more than 500 days ago, valuations show a dash ("too old for valuations").\n'+context
-  };
-}
-
-/* =========================================================
    WRITE SEC FINANCIAL DATA
    ========================================================= */
 
@@ -982,16 +866,6 @@ function refreshStockAnalyzer() {
     const previousStatus = d
       .getRange('B7').getFormula();
 
-    const noteCells = [
-      'F2','F3','F4','C5','F5','F6','F7','A7'
-    ];
-
-    const previousNotes = Object.fromEntries(
-      noteCells.map(cell=>[
-        cell,d.getRange(cell).getNote()
-      ])
-    );
-
     let writing = false;
 
     try {
@@ -1044,9 +918,6 @@ function refreshStockAnalyzer() {
 
       d.getRange(AA.exchangeCell)
         .setValue(p.exchange||'');
-
-      // Refresh notes relating to the new SEC snapshot.
-      aaHeaderNotes_(d,p);
 
       SpreadsheetApp.flush();
 
@@ -1102,10 +973,6 @@ function refreshStockAnalyzer() {
           if (previousStatus) {
             d.getRange('B7')
               .setFormula(previousStatus);
-          }
-
-          for (const [cell,note] of Object.entries(previousNotes)) {
-            d.getRange(cell).setNote(note);
           }
 
           SpreadsheetApp.flush();
