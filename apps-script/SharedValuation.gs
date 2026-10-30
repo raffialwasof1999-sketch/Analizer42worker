@@ -1,0 +1,144 @@
+/**
+ * Dashboard-only shared assumptions, controlled by Analyzer!E12.
+ * A simple edit trigger is separate from the existing SEC refresh trigger.
+ * No network requests, data-sheet writes, row hiding, or Worker changes.
+ * Shared mode uses E16:G16 and E18:G18. Independent FCF inputs are saved
+ * in document properties BEFORE merging and restored exactly on uncheck.
+ */
+const AA_SV = Object.freeze({
+  sheet: 'Analyzer', control: 'E12', label: 'Shared Profit / FCF Margin',
+  backupRanges: ['E17:G17', 'E19:G19', 'E26:G26', 'A18', 'A19', 'A25', 'A26'],
+  mergeRanges: ['E16:E17', 'F16:F17', 'G16:G17', 'A18:D19',
+    'E18:E19', 'F18:F19', 'G18:G19', 'A25:D26',
+    'E25:E26', 'F25:F26', 'G25:G26']
+});
+
+function onEdit(e) {
+  if (!e || !e.range || e.range.getSheet().getName() !== AA_SV.sheet ||
+      e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1 ||
+      e.range.getA1Notation() !== AA_SV.control) return;
+  const sheet = e.range.getSheet();
+  if (sheet.getRange('D12').getValue() !== AA_SV.label) return;
+  const lock = LockService.getDocumentLock();
+  if (!lock || !lock.tryLock(5000)) {
+    sheet.getRange(AA_SV.control).setValue(aaSvMerged_(sheet));
+    e.source.toast('Another update is running. Please try the shared-mode checkbox again.', 'Shared valuation', 8);
+    return;
+  }
+  try {
+    aaSvSetMode_(sheet, PropertiesService.getDocumentProperties(),
+      sheet.getRange(AA_SV.control).getValue() === true);
+    SpreadsheetApp.flush();
+  } catch (error) {
+    console.error('Shared valuation: ' + String(error.message || error));
+    e.source.toast(String(error.message || error), 'Shared valuation', 10);
+  } finally { lock.releaseLock(); }
+}
+
+function aaSvMerged_(sheet) {
+  return sheet.getRange('E16:E17').getMergedRanges()
+    .some(r => r.getA1Notation() === 'E16:E17');
+}
+
+function aaSvKey_(sheet) { return 'AA_SHARED_VALUATION_V1_' + sheet.getSheetId(); }
+
+function aaSvCapture_(sheet) {
+  const entries = {};
+  for (const address of AA_SV.backupRanges) {
+    const r = sheet.getRange(address), values = r.getValues(), formulas = r.getFormulas();
+    entries[address] = {data: values.map((row, i) => row.map((v, j) => formulas[i][j] || v)),
+      notes: r.getNotes(), formats: r.getNumberFormats()};
+  }
+  return {version: 1, sheetId: sheet.getSheetId(), entries};
+}
+
+function aaSvRestore_(sheet, snapshot) {
+  // Only the approved assumption/result cells are unmerged. Adjacent
+  // historical data A16:D17 and comparison metrics H:L are never touched.
+  for (const address of ['E16:G17', 'A18:G19', 'A25:G26'])
+    sheet.getRange(address).breakApart();
+  for (const address of AA_SV.backupRanges) {
+    const entry = snapshot.entries[address];
+    sheet.getRange(address).setValues(entry.data).setNotes(entry.notes)
+      .setNumberFormats(entry.formats);
+  }
+  for (const address of ['A18:D18', 'A19:D19', 'A25:D25', 'A26:D26'])
+    sheet.getRange(address).merge();
+  // Restore the original row dividers, without changing colors or fonts.
+  for (const address of ['E16:G16', 'E17:G17', 'A18:G18', 'A19:G19', 'A25:G25', 'A26:G26'])
+    sheet.getRange(address).setBorder(true, null, true, null, null, null);
+}
+
+function aaSvSetMode_(sheet, properties, enabled) {
+  if (!properties) throw Error('Document backup storage is unavailable; nothing was combined.');
+  const key = aaSvKey_(sheet), raw = properties.getProperty(key);
+  let snapshot = raw ? JSON.parse(raw) : null;
+  if (snapshot && (snapshot.version !== 1 || snapshot.sheetId !== sheet.getSheetId() ||
+      !snapshot.entries || AA_SV.backupRanges.some(a => !snapshot.entries[a])))
+    throw Error('Shared-mode backup is invalid. No saved assumptions were overwritten.');
+  if (!snapshot && !enabled) {
+    if (aaSvMerged_(sheet)) {
+      sheet.getRange(AA_SV.control).setValue(true);
+      throw Error('Saved independent inputs are unavailable; shared mode was kept.');
+    }
+    return;
+  }
+  if (enabled && !snapshot) {
+    if (aaSvMerged_(sheet)) throw Error('Already merged without a backup. No assumptions were overwritten.');
+    // Refuse an unexpectedly rearranged dashboard instead of destroying data.
+    const expected = ['A18:D18', 'A19:D19', 'A25:D25', 'A26:D26'];
+    const found = ['E16:G17', 'A18:G19', 'A25:G26'].flatMap(a =>
+      sheet.getRange(a).getMergedRanges().map(r => r.getA1Notation()));
+    if (found.length !== expected.length || expected.some(a => !found.includes(a))) {
+      sheet.getRange(AA_SV.control).setValue(false);
+      throw Error('Dashboard layout changed; shared mode was not applied.');
+    }
+    snapshot = aaSvCapture_(sheet);
+    // ASCII serialization gives a reliable byte count below the per-property limit.
+    const serialized = JSON.stringify(snapshot).replace(/[\u007f-\uffff]/g,
+      c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+    if (serialized.length > 8500) {
+      sheet.getRange(AA_SV.control).setValue(false);
+      throw Error('Assumption backup is too large; nothing was combined.');
+    }
+    try {
+      properties.setProperty(key, serialized);
+      if (properties.getProperty(key) !== serialized) throw Error('Backup verification failed.');
+    } catch (error) {
+      sheet.getRange(AA_SV.control).setValue(false);
+      throw error;
+    }
+  }
+  try {
+    if (!enabled) {
+      aaSvRestore_(sheet, snapshot);
+      sheet.getRange(AA_SV.control).setValue(false);
+      SpreadsheetApp.flush();
+      properties.deleteProperty(key);
+      return;
+    }
+    // Safe to repeat: do not replace the original independent-input backup.
+    for (const address of ['E16:G17', 'A18:G19', 'A25:G26'])
+      sheet.getRange(address).breakApart();
+    for (const address of ['E17:G17', 'A19:G19', 'A26:G26'])
+      sheet.getRange(address).clearContent().clearNote();
+    sheet.getRange('A18').setValue('Assumed P/E / Price-to-FCF Multiple\n(Shared; End of Projection)')
+      .setNote('Shared mode: each scenario uses its P/E input in row 18 for both earnings and FCF valuation. The independent Price/FCF input is saved and restored when E12 is unchecked.');
+    sheet.getRange('A25').setValue('Maximum Purchase Price Today to Achieve Desired Return\n(Shared Profit / FCF Valuation)')
+      .setNote('Shared mode: one discounted purchase-price result per scenario, using the shared margin in row 16 and shared multiple in row 18. This is a price today, not the future sale price.');
+    for (const address of AA_SV.mergeRanges) sheet.getRange(address).merge();
+    sheet.getRange(AA_SV.control).setValue(true);
+  } catch (error) {
+    // Keep the backup until restoration has completed successfully.
+    try {
+      aaSvRestore_(sheet, snapshot);
+      sheet.getRange(AA_SV.control).setValue(false);
+      SpreadsheetApp.flush();
+      properties.deleteProperty(key);
+    } catch (_) {
+      sheet.getRange(AA_SV.control).setValue(true);
+      throw Error('Layout update failed; saved inputs were retained. Uncheck E12 again to retry restoration.');
+    }
+    throw Error('Layout update failed and the separate inputs were restored: ' + String(error.message || error));
+  }
+}
