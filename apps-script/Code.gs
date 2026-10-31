@@ -578,6 +578,16 @@ function aaTickerEdited(e) {
     return;
   }
 
+  if (cell===AA.exchangeCell) {
+    const exchange = String(e.range.getDisplayValue()||'').trim().toUpperCase();
+
+    if (e.range.getDisplayValue()!==exchange) {
+      e.range.setValue(exchange);
+    }
+
+    return;
+  }
+
   if (cell===AA.tickerCell) {
     try {
       const ticker = aaTicker_(e.range.getDisplayValue());
