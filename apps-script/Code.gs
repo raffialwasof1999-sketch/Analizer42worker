@@ -580,6 +580,12 @@ function aaTickerEdited(e) {
 
   if (cell===AA.tickerCell) {
     try {
+      const ticker = aaTicker_(e.range.getDisplayValue());
+
+      if (e.range.getDisplayValue()!==ticker) {
+        e.range.setValue(ticker);
+      }
+
       refreshStockAnalyzer();
     } catch (err) {
       const message =
