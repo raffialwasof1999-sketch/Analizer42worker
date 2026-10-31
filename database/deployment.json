@@ -1,0 +1,12 @@
+{
+  "database_name": "active-analyzer-financials",
+  "database_id": null,
+  "account_id": "bfae19c1263a27502f05bab61037aa2e",
+  "status": "awaiting_owner_approval_to_provision",
+  "schema_version": 1,
+  "remote_migration_applied": false,
+  "documentation_remote_sync": "pending_database_creation",
+  "worker_binding_configured": false,
+  "dashboard_cutover": false,
+  "updated_on": "2026-10-31"
+}

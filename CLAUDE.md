@@ -1,5 +1,9 @@
 # Active Analyzer: worker, Apps Script and sheet
 
+Database continuation: also read `AGENTS.md` and `database/README.md`.
+Keep the handoff current in every relevant change, including deployment and pending work.
+
+
 Three parts work together. **Every change must stay compatible with all
 three and survive both a refresh and a ticker change.** Before any change,
 check it against `apps-script/Code.gs` and this file, and say how it was
