@@ -12,7 +12,7 @@ class Range {
  getA1Notation(){return this.a;} getSheet(){return this.s;}
  getNumRows(){return this.b[2]-this.b[0]+1;} getNumColumns(){return this.b[3]-this.b[1]+1;}
  cells(fn){const out=[];for(let r=this.b[0];r<=this.b[2];r++){const row=[];for(let c=this.b[1];c<=this.b[3];c++)row.push(fn(this.s.cell(name(r,c)),r-this.b[0],c-this.b[1]));out.push(row);}return out;}
- getValue(){return this.s.cell(name(this.b[0],this.b[1])).value;}
+ getValue(){return this.s.cell(name(this.b[0],this.b[1])).value;} getDisplayValue(){return String(this.getValue());}
  getValues(){return this.cells(c=>c.value);}
  getFormulas(){return this.cells(c=>typeof c.value==='string'&&c.value.startsWith('=')?c.value:'');}
  getNotes(){return this.cells(c=>c.note);}
