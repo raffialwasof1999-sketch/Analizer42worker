@@ -635,6 +635,7 @@ function aaShowFailedImport_(ss,message) {
       '\nValuations are hidden until a successful refresh.'+
       aaLastSuccessfulImport_(ss));
     d.getRange(AA.companyCell).setValue('-');
+    d.getRange(AA.exchangeCell).clearContent();
   } catch (e) {
     console.error('Status update failed: '+String(e.message||e));
   }
@@ -670,6 +671,7 @@ function refreshStockAnalyzer() {
     // refreshes, by replacing the successful status prefix.
     d.getRange('B7').setValue('SEC REFRESHING — valuations hidden'+
       aaLastSuccessfulImport_(ss));
+    d.getRange(AA.exchangeCell).clearContent();
     SpreadsheetApp.flush();
 
     // Validate the refresh checkbox and data-tab schemas. Dashboard
@@ -790,7 +792,7 @@ function refreshStockAnalyzer() {
         .setValue(p.companyName||ticker);
 
       d.getRange(AA.exchangeCell)
-        .setValue(p.exchange||'');
+        .setValue(String(p.exchange||'').trim().toUpperCase());
 
       SpreadsheetApp.flush();
 
