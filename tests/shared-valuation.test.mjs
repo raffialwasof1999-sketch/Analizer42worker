@@ -45,9 +45,9 @@ function setup(){
   toggle(v){sheet.cell('D12').value=v?'Use Shared P/E & P/FCF Assumptions':'Use Separate P/E & P/FCF Assumptions';return ctx.aaSvSetMode_(sheet,props,v);},
   edit(a='D12'){return ctx.onEdit({range:sheet.getRange(a),source:{toast:(...x)=>toasts.push(x)}});}};
 }
-test('enabling makes exactly one margin, multiple and result per scenario',()=>{const x=setup();x.toggle(true);assert.equal(x.sheet.merges.length,11);for(const c of ['E','F','G']){assert.equal(x.sheet.cell(c+'16').value,0.2);assert.equal(x.sheet.cell(c+'17').value,'');assert.equal(x.sheet.cell(c+'18').value,20);assert.equal(x.sheet.cell(c+'19').value,'');assert.equal(x.sheet.cell(c+'25').value,'=profitCalculation');assert.equal(x.sheet.cell(c+'26').value,'');}assert.equal(x.storage.size,1);});
+test('enabling keeps independent margins and shares only multiple and result',()=>{const x=setup();x.toggle(true);assert.equal(x.sheet.merges.length,8);for(const c of ['E','F','G']){assert.equal(x.sheet.cell(c+'16').value,0.2);assert.equal(x.sheet.cell(c+'17').value,0.13);assert.equal(x.sheet.cell(c+'18').value,20);assert.equal(x.sheet.cell(c+'19').value,'');assert.equal(x.sheet.cell(c+'25').value,'=profitCalculation');assert.equal(x.sheet.cell(c+'26').value,'');}assert.equal(x.storage.size,1);});
 test('uncheck restores all independent inputs, formulas, labels and formats',()=>{const x=setup();const before=plain(x.ctx.aaSvCapture_(x.sheet));x.toggle(true);x.toggle(false);assert.deepEqual(plain(x.ctx.aaSvCapture_(x.sheet)),before);assert.equal(x.storage.size,0);assert.deepEqual(x.sheet.merges,['A18:D18','A19:D19','A25:D25','A26:D26']);});
-test('shared edits stay in profit inputs; old independent FCF values are restored',()=>{const x=setup();x.toggle(true);x.sheet.cell('F16').value=0.25;x.sheet.cell('F18').value=30;x.toggle(false);assert.equal(x.sheet.cell('F16').value,0.25);assert.equal(x.sheet.cell('F18').value,30);assert.equal(x.sheet.cell('F17').value,0.13);assert.equal(x.sheet.cell('F19').value,16);});
+test('edits to both margins survive both toggle directions',()=>{const x=setup();x.toggle(true);x.sheet.cell('F16').value=0.25;x.sheet.cell('F17').value=0.18;x.sheet.cell('F18').value=30;x.toggle(true);x.toggle(false);assert.equal(x.sheet.cell('F16').value,0.25);assert.equal(x.sheet.cell('F17').value,0.18);assert.equal(x.sheet.cell('F18').value,30);assert.equal(x.sheet.cell('F19').value,16);});
 test('repeat enable never overwrites independent backup',()=>{const x=setup();x.toggle(true);const saved=[...x.storage.values()][0];x.toggle(true);assert.equal([...x.storage.values()][0],saved);x.toggle(false);assert.equal(x.sheet.cell('E17').value,0.13);});
 test('history, comparison metrics, returns and refresh controls are untouched',()=>{const x=setup();x.toggle(true);x.toggle(false);for(const a of x.sheet.writes){const b=bounds(a);assert.ok(b[3]<=7);assert.ok(!overlaps(a,'A16:D17'));assert.ok(!overlaps(a,'A1:L11'));assert.ok(!overlaps(a,'A27:L28'));}assert.equal(x.sheet.cell('B17').value,0.12);});
 test('blank, zero, unequal and formula-backed FCF inputs round-trip',()=>{const x=setup();x.sheet.cell('E17').value=0;x.sheet.cell('F17').value='';x.sheet.cell('G17').value='=0.21';x.sheet.cell('F19').value=11;const before=plain(x.ctx.aaSvCapture_(x.sheet));x.toggle(true);x.toggle(false);assert.deepEqual(plain(x.ctx.aaSvCapture_(x.sheet)),before);});
@@ -55,9 +55,9 @@ test('backup failure makes no destructive writes',()=>{const x=setup();x.props.s
 test('mid-operation failure rolls back completely',()=>{const x=setup();const before=plain(x.ctx.aaSvCapture_(x.sheet));x.sheet.fail=a=>a==='A25';assert.throws(()=>x.toggle(true),/restored/);assert.deepEqual(plain(x.ctx.aaSvCapture_(x.sheet)),before);assert.equal(x.sheet.cell('D12').value,'Use Separate P/E & P/FCF Assumptions');assert.equal(x.storage.size,0);});
 test('unexpected merged layout is rejected without erasing inputs',()=>{const x=setup();x.sheet.merges.push('E16:F16');assert.throws(()=>x.toggle(true),/layout changed/);assert.equal(x.sheet.cell('F17').value,0.13);assert.equal(x.sheet.cell('D12').value,'Use Separate P/E & P/FCF Assumptions');});
 test('simple trigger ignores other cells and tabs',()=>{const x=setup();x.edit('B2');x.edit('B6');x.edit('E12');x.sheet.title='Other';x.edit();assert.equal(x.sheet.writes.length,0);assert.equal(x.storage.size,0);});
-test('trigger uses latest dropdown state and releases document lock',()=>{const x=setup();x.sheet.cell('D12').value='Use Shared P/E & P/FCF Assumptions';x.edit();assert.equal(x.sheet.merges.length,11);assert.equal(x.released(),1);x.sheet.cell('D12').value='Use Separate P/E & P/FCF Assumptions';x.edit();assert.equal(x.sheet.merges.length,4);assert.equal(x.released(),2);});
+test('trigger uses latest dropdown state and releases document lock',()=>{const x=setup();x.sheet.cell('D12').value='Use Shared P/E & P/FCF Assumptions';x.edit();assert.equal(x.sheet.merges.length,8);assert.equal(x.released(),1);x.sheet.cell('D12').value='Use Separate P/E & P/FCF Assumptions';x.edit();assert.equal(x.sheet.merges.length,4);assert.equal(x.released(),2);});
 test('busy lock reverts dropdown without modifying financial data',()=>{const x=setup();x.setLocked(false);x.sheet.cell('D12').value='Use Shared P/E & P/FCF Assumptions';x.edit();assert.equal(x.sheet.cell('D12').value,'Use Separate P/E & P/FCF Assumptions');assert.equal(x.storage.size,0);assert.equal(x.toasts.length,1);});
-test('missing backup never invents independent values',()=>{const x=setup();x.toggle(true);x.storage.clear();assert.throws(()=>x.toggle(false),/unavailable/);assert.equal(x.sheet.cell('D12').value,'Use Shared P/E & P/FCF Assumptions');assert.equal(x.sheet.cell('E17').value,'');});
+test('missing backup never invents independent values',()=>{const x=setup();x.toggle(true);x.storage.clear();assert.throws(()=>x.toggle(false),/unavailable/);assert.equal(x.sheet.cell('D12').value,'Use Shared P/E & P/FCF Assumptions');assert.equal(x.sheet.cell('E17').value,0.13);});
 test('large backup fails before merge',()=>{const x=setup();x.sheet.cell('A26').value='x'.repeat(9000);assert.throws(()=>x.toggle(true),/too large/);assert.equal(x.sheet.cell('D12').value,'Use Separate P/E & P/FCF Assumptions');assert.equal(x.sheet.merges.length,4);});
 test('module cannot invoke SEC refresh or access any external service',()=>{assert.doesNotMatch(source,/UrlFetchApp|refreshStockAnalyzer\s*\(|\.hideRows\(|\.deleteRows\(|\.insertRows\(/);assert.doesNotMatch(source,/function\s+(?:aaTickerEdited|onOpen)\s*\(/);});
 
@@ -101,4 +101,49 @@ test('all deployable Apps Script sources prohibit cell-note writing',()=>{
   assert.doesNotMatch(text,/\[\s*['"]setNotes?['"]\s*\]\s*\(/,file+' must not write cell notes indirectly');
   assert.doesNotMatch(text,/(?:\bnote|['"]note['"])\s*:/,file+' must not write a Sheets API CellData.note field');
  }
+});
+
+
+test('legacy merged margins restore saved inputs before shared-layout upgrade',()=>{
+ const x=setup();
+ x.toggle(true);
+ const key=[...x.storage.keys()][0], snapshot=JSON.parse(x.storage.get(key));
+ snapshot.version=1;
+ snapshot.entries['E17:G17']={data:[[0,0.115,'=0.21']],formats:[['0.00%','0.00%','0.00%']]};
+ x.storage.set(key,JSON.stringify(snapshot));
+ for(const c of ['E','F','G'])x.sheet.getRange(c+'16:'+c+'17').merge();
+ x.toggle(true);
+ assert.deepEqual(['E','F','G'].map(c=>x.sheet.cell(c+'17').value),[0,0.115,'=0.21']);
+ assert.equal(x.sheet.merges.some(m=>overlaps(m,'E16:G17')),false);
+ assert.equal(x.sheet.merges.includes('E18:E19'),true);
+ x.sheet.cell('F17').value=0.19;
+ x.toggle(false);
+ assert.equal(x.sheet.cell('F17').value,0.19);
+});
+
+test('legacy merged margins with no saved data fail without erasing them',()=>{
+ const x=setup();x.toggle(true);
+ for(const c of ['E','F','G'])x.sheet.getRange(c+'16:'+c+'17').merge();
+ assert.throws(()=>x.toggle(true),/margins.*unavailable/);
+ assert.equal(x.sheet.cell('E16').value,0.2);
+ assert.equal(x.storage.size,1);
+});
+
+
+test('combined result averages both margins with shared multiple and guards blanks',()=>{
+ const x=setup();
+ for(const c of ['E','F','G']) {
+   const original='=IF(LEFT($B$7,14)="SEC snapshot: ",IFERROR(IF(AND(ISNUMBER('+c+'16),ISNUMBER('+c+'18)),LET(m,'+c+'16,mult,'+c+'18,m*mult),"-"),"-"),"")';
+   const updated=x.ctx.aaSvIndependentMarginFormula_(original,c);
+   assert.ok(updated.includes('AVERAGE('+c+'16,'+c+'17)'));
+   assert.ok(updated.includes('IF(($D$12="Use Shared P/E & P/FCF Assumptions"),ISNUMBER('+c+'17),TRUE)'));
+   assert.ok(updated.includes('LEFT($B$7,14)="SEC snapshot: "'));
+   assert.equal(x.ctx.aaSvIndependentMarginFormula_(updated,c),updated);
+   x.sheet.cell(c+'25').value=original;
+ }
+ x.toggle(true);
+ for(const c of ['E','F','G'])assert.ok(x.sheet.cell(c+'25').value.includes('AVERAGE('+c+'16,'+c+'17)'));
+ const revenue=100,profitMargin=0.3,fcfMargin=0.1,multiple=20;
+ assert.equal(revenue*((profitMargin+fcfMargin)/2)*multiple,
+              (revenue*profitMargin*multiple+revenue*fcfMargin*multiple)/2);
 });

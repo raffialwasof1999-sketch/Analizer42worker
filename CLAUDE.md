@@ -218,3 +218,17 @@ for reference only; the importer never loads or writes it. Notes describe
 meaning, sources and calculations for quarterly and annual-only modes.
 A6 and B6 intentionally have no hover notes.
 
+
+## Shared multiples with independent margins
+
+Analyzer D12 shares only E18:G19 multiples and E25:G26 outputs. E16:G16
+(profit margin) and E17:G17 (FCF margin) remain independent in both modes.
+Shared E25:G25 is the arithmetic mean of the earnings and FCF valuations,
+using both margins with the same multiple; missing either margin yields a
+dash. Separate mode uses the profit margin for E25 and the saved independent
+FCF formula/multiple for E26. E27:G28 retain the existing shared-result logic.
+`SharedValuation.gs` accepts old version-1 document backups and restores
+FCF margins before unmerging legacy E16:E17 pairs. New backups are version 2
+and do not capture or overwrite the independently editable FCF margins.
+After source deployment, selecting Separate then Shared in D12 upgrades the
+existing live merged layout and recovers its saved FCF margins.
