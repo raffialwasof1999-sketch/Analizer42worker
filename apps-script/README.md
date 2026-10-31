@@ -8,7 +8,7 @@ changes or "Refresh SEC Data" is ticked.
 | File | What it does |
 |---|---|
 | `Code.gs` | Menu, refresh (`refreshStockAnalyzer`), ticker-edit trigger, validation and writes to Financial Data / Quarterly Data, and the SEC Data Status formula in Analyzer!B7 (`aaStatusFormula_`) |
-| `SharedValuation.gs` | Analyzer!D12 shares valuation multiples and combines purchase-price results while keeping profit and FCF margins independently editable; restores legacy merged margins from the saved backup |
+| `SharedValuation.gs` | Analyzer!D12 shares only valuation multiples while keeping profit/FCF margins and purchase-price results separate; restores legacy merged margins from the saved backup |
 | `TickerSearch.gs` | "Ticker Search" menu: loads Nasdaq Trader's public symbol lists and sets Analyzer!B2 |
 | `TickerSearch2.html` | The ticker search sidebar |
 
