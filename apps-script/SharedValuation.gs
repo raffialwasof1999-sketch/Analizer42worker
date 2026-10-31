@@ -4,7 +4,7 @@
  * A simple edit trigger is separate from the existing SEC refresh trigger.
  * No network requests, data-sheet writes, row hiding, or Worker changes.
  * Shared mode keeps E16:G16 and E17:G17 independently editable. Only
- * E18:G19 multiples and E25:G26 results are merged. Legacy saved FCF
+ * E18:G19 multiples are merged; E25:G26 results stay separate. Legacy saved FCF
  * margins are restored before upgrading an already-merged dashboard.
  * Never create or restore cell notes. Existing reference-tab notes are
  * maintained manually; legacy backup notes are deliberately ignored.
@@ -12,10 +12,9 @@
 const AA_SV = Object.freeze({
   sheet: 'Analyzer', control: 'D12',
   sharedLabel: 'Use Shared P/E & P/FCF Assumptions', separateLabel: 'Use Separate P/E & P/FCF Assumptions',
-  backupRanges: ['E19:G19', 'E26:G26', 'A18', 'A19', 'A25', 'A26'],
+  backupRanges: ['E19:G19', 'A18', 'A19'],
   mergeRanges: ['A18:D19',
-    'E18:E19', 'F18:F19', 'G18:G19', 'A25:D26',
-    'E25:E26', 'F25:F26', 'G25:G26']
+    'E18:E19', 'F18:F19', 'G18:G19']
 });
 
 function onEdit(e) {
@@ -53,7 +52,7 @@ function aaSvCapture_(sheet) {
     entries[address] = {data: values.map((row, i) => row.map((v, j) => formulas[i][j] || v)),
       formats: r.getNumberFormats()};
   }
-  return {version: 2, sheetId: sheet.getSheetId(), entries};
+  return {version: 3, sheetId: sheet.getSheetId(), entries};
 }
 
 function aaSvMigrateMargins_(sheet, snapshot) {
@@ -72,28 +71,33 @@ function aaSvMigrateMargins_(sheet, snapshot) {
     sheet.getRange(address).setBorder(true, null, true, null, null, null);
 }
 
-function aaSvIndependentMarginFormula_(formula, column) {
-  const shared = '($D$12="Use Shared P/E & P/FCF Assumptions")';
-  return formula
-    .replace('ISNUMBER(' + column + '16),ISNUMBER(' + column + '18)',
-      'ISNUMBER(' + column + '16),IF(' + shared + ',ISNUMBER(' + column + '17),TRUE),ISNUMBER(' + column + '18)')
-    .replace('m,' + column + '16,mult,' + column + '18',
-      'm,IF(' + shared + ',AVERAGE(' + column + '16,' + column + '17),' + column + '16),mult,' + column + '18');
+function aaSvValuationFormula_(column, cashFlow) {
+  const margin = column + (cashFlow ? '17' : '16');
+  const multiple = cashFlow
+    ? 'IF(($D$12="Use Shared P/E & P/FCF Assumptions"),' + column + '18,' + column + '19)'
+    : column + '18';
+  return '=IF(LEFT($B$7,14)="SEC snapshot: ",IFERROR(IF(AND(ISNUMBER($G$2),$G$2>0,ISNUMBER(IF(($I$2="Use Diluted Basis"),$G$6,$G$5)),IF(($I$2="Use Diluted Basis"),$G$6,$G$5)>0,ISNUMBER($B$3),$B$3>0,ISNUMBER(' + column + '15),ISNUMBER(' + margin + '),ISNUMBER(' + multiple + '),ISNUMBER(' + column + '20),1+' + column + '15>0,1+' + column + '20>0),LET(sh,IF(($I$2="Use Diluted Basis"),$G$6,$G$5),n,$B$3,g,' + column + '15,m,' + margin + ',mult,' + multiple + ',r,' + column + '20,terminal,($G$2*(1+g)^n*m*mult)/(sh*(1+r)^n),IF(($C$22="Projected Owner Value"),terminal+IF(n>1,SUM(ARRAYFORMULA(($G$2*(1+g)^SEQUENCE(n-1)*m)/(sh*(1+r)^SEQUENCE(n-1)))),0),terminal)),"-"),"-"),"")';
 }
 
-function aaSvUpdateResultMargins_(sheet) {
+function aaSvUpdateSeparateResults_(sheet) {
+  sheet.getRange('A25:G26').breakApart();
+  for (const address of ['A25:D25', 'A26:D26']) sheet.getRange(address).merge();
+  sheet.getRange('A25').setValue('Maximum Purchase Price Today to Achieve Desired Return\n(Net Profit Valuation)').clearNote();
+  sheet.getRange('A26').setValue('Maximum Purchase Price Today to Achieve Desired Return\n(Free Cash Flow Valuation)').clearNote();
   for (const column of ['E', 'F', 'G']) {
-    const range = sheet.getRange(column + '25');
-    const formula = range.getFormulas()[0][0];
-    const updated = aaSvIndependentMarginFormula_(formula, column);
-    if (updated !== formula) range.setValue(updated);
+    sheet.getRange(column + '25').setValue(aaSvValuationFormula_(column, false));
+    sheet.getRange(column + '26').setValue(aaSvValuationFormula_(column, true));
   }
+  for (const address of ['A25:G25', 'A26:G26'])
+    sheet.getRange(address).setBorder(true, null, true, null, null, null);
 }
 
 function aaSvRestore_(sheet, snapshot) {
+  // Never revive obsolete shared-result hover notes, including on rollback.
+  sheet.getRange('A25:G26').clearNote();
   // Only the approved assumption/result cells are unmerged. Adjacent
   // historical data A16:D17 and comparison metrics H:L are never touched.
-  for (const address of ['E16:G17', 'A18:G19', 'A25:G26'])
+  for (const address of ['E16:G17', 'A18:G19'])
     sheet.getRange(address).breakApart();
   for (const address of AA_SV.backupRanges) {
     const entry = snapshot.entries[address];
@@ -102,10 +106,10 @@ function aaSvRestore_(sheet, snapshot) {
     sheet.getRange(address).setValues(entry.data).clearNote()
       .setNumberFormats(entry.formats);
   }
-  for (const address of ['A18:D18', 'A19:D19', 'A25:D25', 'A26:D26'])
+  for (const address of ['A18:D18', 'A19:D19'])
     sheet.getRange(address).merge();
   // Restore the original row dividers, without changing colors or fonts.
-  for (const address of ['E16:G16', 'E17:G17', 'A18:G18', 'A19:G19', 'A25:G25', 'A26:G26'])
+  for (const address of ['E16:G16', 'E17:G17', 'A18:G18', 'A19:G19'])
     sheet.getRange(address).setBorder(true, null, true, null, null, null);
 }
 
@@ -113,7 +117,7 @@ function aaSvSetMode_(sheet, properties, enabled) {
   if (!properties) throw Error('Document backup storage is unavailable; nothing was combined.');
   const key = aaSvKey_(sheet), raw = properties.getProperty(key);
   let snapshot = raw ? JSON.parse(raw) : null;
-  if (snapshot && (![1, 2].includes(snapshot.version) || snapshot.sheetId !== sheet.getSheetId() ||
+  if (snapshot && (![1, 2, 3].includes(snapshot.version) || snapshot.sheetId !== sheet.getSheetId() ||
       !snapshot.entries || AA_SV.backupRanges.some(a => !snapshot.entries[a])))
     throw Error('Shared-mode backup is invalid. No saved assumptions were overwritten.');
   if (!snapshot && !enabled) {
@@ -126,8 +130,8 @@ function aaSvSetMode_(sheet, properties, enabled) {
   if (enabled && !snapshot) {
     if (aaSvMerged_(sheet)) throw Error('Already merged without a backup. No assumptions were overwritten.');
     // Refuse an unexpectedly rearranged dashboard instead of destroying data.
-    const expected = ['A18:D18', 'A19:D19', 'A25:D25', 'A26:D26'];
-    const found = ['E16:G17', 'A18:G19', 'A25:G26'].flatMap(a =>
+    const expected = ['A18:D18', 'A19:D19'];
+    const found = ['E16:G17', 'A18:G19'].flatMap(a =>
       sheet.getRange(a).getMergedRanges().map(r => r.getA1Notation()));
     if (found.length !== expected.length || expected.some(a => !found.includes(a))) {
       sheet.getRange(AA_SV.control).setValue(AA_SV.separateLabel);
@@ -153,7 +157,7 @@ function aaSvSetMode_(sheet, properties, enabled) {
   // unmerge cells or delete the only saved independent inputs.
   aaSvMigrateMargins_(sheet, snapshot);
   try {
-    aaSvUpdateResultMargins_(sheet);
+    aaSvUpdateSeparateResults_(sheet);
     if (!enabled) {
       aaSvRestore_(sheet, snapshot);
       sheet.getRange(AA_SV.control).setValue(AA_SV.separateLabel);
@@ -162,13 +166,11 @@ function aaSvSetMode_(sheet, properties, enabled) {
       return;
     }
     // Safe to repeat: do not replace the original independent-input backup.
-    for (const address of ['E16:G17', 'A18:G19', 'A25:G26'])
+    for (const address of ['E16:G17', 'A18:G19'])
       sheet.getRange(address).breakApart();
-    for (const address of ['A19:G19', 'A26:G26'])
+    for (const address of ['A19:G19'])
       sheet.getRange(address).clearContent().clearNote();
     sheet.getRange('A18').setValue('Assumed P/E / Price-to-FCF Multiple\n(Shared; End of Projection)')
-      .clearNote();
-    sheet.getRange('A25').setValue('Maximum Purchase Price Today to Achieve Desired Return\n(Average of Profit / FCF Valuations; Shared Multiple)')
       .clearNote();
     for (const address of AA_SV.mergeRanges) sheet.getRange(address).merge();
     sheet.getRange(AA_SV.control).setValue(AA_SV.sharedLabel);

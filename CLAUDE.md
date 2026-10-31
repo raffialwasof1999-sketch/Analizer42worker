@@ -219,16 +219,17 @@ meaning, sources and calculations for quarterly and annual-only modes.
 A6 and B6 intentionally have no hover notes.
 
 
-## Shared multiples with independent margins
+## Shared multiples, independent margins and results
 
-Analyzer D12 shares only E18:G19 multiples and E25:G26 outputs. E16:G16
-(profit margin) and E17:G17 (FCF margin) remain independent in both modes.
-Shared E25:G25 is the arithmetic mean of the earnings and FCF valuations,
-using both margins with the same multiple; missing either margin yields a
-dash. Separate mode uses the profit margin for E25 and the saved independent
-FCF formula/multiple for E26. E27:G28 retain the existing shared-result logic.
-`SharedValuation.gs` accepts old version-1 document backups and restores
-FCF margins before unmerging legacy E16:E17 pairs. New backups are version 2
-and do not capture or overwrite the independently editable FCF margins.
-After source deployment, selecting Separate then Shared in D12 upgrades the
-existing live merged layout and recovers its saved FCF margins.
+Analyzer D12 shares only E18:G19 multiples. E16:G16 profit margins and
+E17:G17 FCF margins stay independent, as do E25:G25 profit valuations and
+E26:G26 FCF valuations. Shared-mode FCF uses row 18; separate mode uses
+row 19. There is no averaging of the two valuation methods.
+The result formulas preserve the B7 SEC-status guard, I2 share basis and C22
+owner-value/exit-price selector. Return results are separated by method:
+rows 27/28 use net profit (price-only/including dividends), rows 29/30 use
+FCF (price-only/including dividends). Existing notes start at row 31.
+New document backups are version 3 and contain only the separate multiple
+and multiple labels; version-1/2 backups are accepted without restoring
+obsolete merged-result formulas. Legacy version-1 margin inputs are restored
+before unmerging. Toggle cycles must keep results independent.
