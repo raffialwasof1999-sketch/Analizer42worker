@@ -1,6 +1,6 @@
 /**
- * Dashboard-only shared assumptions, controlled by Analyzer!E12.
- * E12 is a Shared / Separate dropdown.
+ * Dashboard-only shared assumptions, controlled by merged Analyzer!D12:E12 (value stored in D12).
+ * D12 is the merged-cell Shared / Separate dropdown.
  * A simple edit trigger is separate from the existing SEC refresh trigger.
  * No network requests, data-sheet writes, row hiding, or Worker changes.
  * Shared mode uses E16:G16 and E18:G18. Independent FCF inputs are saved
@@ -9,7 +9,7 @@
  * maintained manually; legacy backup notes are deliberately ignored.
  */
 const AA_SV = Object.freeze({
-  sheet: 'Analyzer', control: 'E12', label: 'Shared Profit / FCF Margin',
+  sheet: 'Analyzer', control: 'D12',
   backupRanges: ['E17:G17', 'E19:G19', 'E26:G26', 'A18', 'A19', 'A25', 'A26'],
   mergeRanges: ['E16:E17', 'F16:F17', 'G16:G17', 'A18:D19',
     'E18:E19', 'F18:F19', 'G18:G19', 'A25:D26',
@@ -21,7 +21,6 @@ function onEdit(e) {
       e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1 ||
       e.range.getA1Notation() !== AA_SV.control) return;
   const sheet = e.range.getSheet();
-  if (sheet.getRange('D12').getValue() !== AA_SV.label) return;
   const lock = LockService.getDocumentLock();
   if (!lock || !lock.tryLock(5000)) {
     sheet.getRange(AA_SV.control).setValue(aaSvMerged_(sheet) ? 'Shared' : 'Separate');
@@ -142,7 +141,7 @@ function aaSvSetMode_(sheet, properties, enabled) {
       properties.deleteProperty(key);
     } catch (_) {
       sheet.getRange(AA_SV.control).setValue('Shared');
-      throw Error('Layout update failed; saved inputs were retained. Choose Separate in E12 again to retry restoration.');
+      throw Error('Layout update failed; saved inputs were retained. Choose Separate in D12 again to retry restoration.');
     }
     throw Error('Layout update failed and the separate inputs were restored: ' + String(error.message || error));
   }
