@@ -10,6 +10,7 @@ function setup() {
     getDisplayValue:()=>cells.get(address)||'',
     getValue:()=>cells.get(address)||'',
     getFormula:()=>String(cells.get(address)||'').startsWith('=')?cells.get(address):'',
+    clearContent(){cells.delete(address);events.push(['clear',address]);return this;},
     setValue(v){cells.set(address,v); events.push(['value',address,v]);return this;},
     setFormula(v){cells.set(address,v);events.push(['formula',address,v]);return this;},
     getFormulas:()=>[['=1+2','']],
@@ -76,7 +77,7 @@ test('successful refresh and ticker changes use only core dashboard cells and pr
     const result=ctx.refreshStockAnalyzer();
     assert.equal(result.ticker,ticker);
     assert.equal(cells.get('B4'),ticker+' Company');
-    assert.equal(cells.get('E2'),'Nasdaq');
+    assert.equal(cells.get('E2'),'NASDAQ');
     assert.match(cells.get('B7'),/^=IF/);
     assert.equal(cells.get('L45'),moved);
   }

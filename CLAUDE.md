@@ -120,6 +120,22 @@ AA basic EPS, AB split-adjusted FCF per diluted share, AC net acquisitions).
 - Sheets caches IMPORTDATA by URL: when a feed's output changes without a
   new import, bump its `&release=` tag.
 
+## Latest regular-share fallback
+
+When the latest quarterly regular share count is missing from Company Facts,
+`src/sec-cover-shares.js` reads that quarter's matching primary 10-Q/10-K.
+It accepts `dei:EntityCommonStockSharesOutstanding` for the matching CIK and
+cover date, with share units and inline scaling. Class-dimensional common
+shares are summed once per class; totals are never added to class amounts.
+Conflicts and unsupported contexts leave the value null. Only missing latest
+`sharesOutstanding` / `sharesOutstandingAsOf` fields are filled; diluted
+shares, historical rows and the Apps Script schema are unchanged. At most
+one additional bounded document fetch is used and reused for dividends.
+
+The dashboard Basic/Diluted control is now the text dropdown at Analyzer I2.
+Historical P/E Data M:O and Annual View B23/P2 compare its value to
+`Use Diluted Basis`; they must not read the retired boolean checkbox J2.
+
 ## Filling unknown ROIC inputs (fills nulls only)
 
 - Total debt 0 when the period's own filing shows no debt of any kind

@@ -1,3 +1,4 @@
+import { recoverLatestCoverShares } from './sec-cover-shares.js';
 import { secTotalDebt, auditedAbsentCurrentDebtProof } from './sec-debt.js';
 import { financialInputArchive, rollingRoicCoverage } from './sec-input-coverage.js';
 import { secFactsCatalog, secRawConcept, secRawFactsPage, secSourceSummary } from './sec-raw-facts.js';
@@ -1398,7 +1399,19 @@ async function handleRequest(request) {
       // Dividends per share on today's split basis (proven splits only).
       const dps=normalizeDividendsPerShare(finalQuarterly,fcfShares.factors);
       finalQuarterly.forEach((row,i)=>{ row.dividendsPerShare=dps.values[i]; });
-      const dividendVerification=await verifyDividends(finalAnnual,finalQuarterly,sub,cik,limitedSecDocument);
+      // Reuse the primary document when dividend verification also reads it.
+      const shareDocuments=new Map();
+      const readShareDocument=filing=>{
+        const url=filing.filingDocumentUrl;
+        if(shareDocuments.has(url))return shareDocuments.get(url);
+        const pending=limitedSecDocument(filing);
+        // Keep at most the one cover document, not every dividend report.
+        if(shareDocuments.size===0)shareDocuments.set(url,pending);
+        return pending;
+      };
+      const coverShareRecovery=await recoverLatestCoverShares(finalQuarterly,sub,cik,readShareDocument);
+      finalQuarterly=coverShareRecovery.rows;
+      const dividendVerification=await verifyDividends(finalAnnual,finalQuarterly,sub,cik,readShareDocument);
       finalAnnual=dividendVerification.annual;
       finalQuarterly=dividendVerification.quarterly;
       // Small, public CSV feed for Google Sheets IMPORTDATA. Existing Apps
